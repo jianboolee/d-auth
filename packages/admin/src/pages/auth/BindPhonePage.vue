@@ -5,6 +5,7 @@ import { NForm, NFormItem, NInput, NButton } from "naive-ui";
 import { useAdminClient } from "../../client";
 import { useAuthSession } from "../../session";
 import { useAuthPaths } from "../../paths";
+import { toLocalCNPhone } from "../../phone";
 import { errMessage } from "../../labels";
 import AuthShell from "./AuthShell.vue";
 
@@ -54,14 +55,10 @@ function startCountdown(seconds = 60) {
 
 onUnmounted(clearCountdown);
 
-function normalizePhone(value: string) {
-  return value.replace(/\D/g, "").slice(0, 11);
-}
-
 async function send() {
   setTip("");
   if (!phoneValid.value) {
-    setTip("请输入正确的 11 位手机号", "error");
+    setTip("请输入正确的手机号", "error");
     return;
   }
   sending.value = true;
@@ -79,7 +76,7 @@ async function send() {
 async function submit() {
   setTip("");
   if (!phoneValid.value) {
-    setTip("请输入正确的 11 位手机号", "error");
+    setTip("请输入正确的手机号", "error");
     return;
   }
   if (!code.value.trim()) {
@@ -120,10 +117,9 @@ async function signOut() {
           :value="phone"
           size="large"
           round
-          maxlength="11"
-          inputmode="numeric"
+          inputmode="tel"
           placeholder="请输入手机号"
-          @update:value="phone = normalizePhone($event)"
+          @update:value="phone = toLocalCNPhone($event)"
         >
           <template #prefix>
             <span class="phone-prefix">+86</span>

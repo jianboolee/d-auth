@@ -5,6 +5,7 @@ import type { Identity } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../../client";
 import { useConfirm } from "../../confirm";
 import { useAuthSession } from "../../session";
+import { normalizePhoneInput, phoneLooksValid } from "../../phone";
 import { errMessage, identityLabel } from "../../labels";
 
 const client = useAdminClient();
@@ -26,7 +27,7 @@ const em = reactive({ next: "", code: "", sending: false });
 const identities = ref<Identity[]>([]);
 const identitiesLoading = ref(false);
 
-const phoneValid = computed(() => /^1\d{10}$/.test(ph.next.trim()));
+const phoneValid = computed(() => phoneLooksValid(ph.next));
 const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em.next.trim()));
 const hasPassword = computed(() => !!user.value?.has_password);
 const boundPhone = computed(() => user.value?.phone ?? "");
@@ -153,13 +154,9 @@ function close() {
   show.value = false;
 }
 
-function normalizePhoneInput(value: string) {
-  return value.replace(/\D/g, "").slice(0, 11);
-}
-
 async function sendNewCode() {
   if (!phoneValid.value) {
-    message.error("请输入正确的 11 位手机号");
+    message.error("请输入正确的手机号");
     return;
   }
   ph.sendingNew = true;
@@ -226,7 +223,7 @@ function submitPassword() {
 function submitPhone() {
   const bound = !!boundPhone.value;
   if (!phoneValid.value) {
-    message.error("请输入正确的 11 位手机号");
+    message.error("请输入正确的手机号");
     return;
   }
   if (!ph.newCode.trim()) {
@@ -402,9 +399,8 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
           <n-form-item label="新手机号">
             <n-input
               :value="ph.next"
-              maxlength="11"
-              inputmode="numeric"
-              placeholder="请输入新手机号"
+              inputmode="tel"
+              placeholder="13800138000 或 +8613800138000"
               @update:value="ph.next = normalizePhoneInput($event)"
             />
           </n-form-item>
