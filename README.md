@@ -21,7 +21,7 @@
 ```bash
 cp .env.example .env
 make up          # Postgres :8683 + Redis :8684
-make api         # http://localhost:8681
+make api         # http://localhost:8681（启动时自动 migrate）
 make web         # http://localhost:8682 （/v1 代理到 8681）
 ```
 
@@ -78,7 +78,7 @@ const auth = createDAuthClient({
 }
 ```
 
-其它 **Go 服务不要 import 本模块**。验 JWT 用 `GET /v1/.well-known/jwks.json`；查改用户用 `Authorization: Bearer dak_live_...`，或：
+其它 **Go 服务不要 import 本模块**。推荐 **HS256**：设置 `DAUTH_JWT_SECRET`（或 `JWT_SECRET`）后按该算法签发，其它服务用同一把密钥验 `iss` / `sub` / `roles` / `sid`。未配密钥时仍为 RS256，公钥在 `GET /v1/.well-known/jwks.json`。查改用户用 `Authorization: Bearer dak_live_...`，或：
 
 ```ts
 import { createDAuthServiceClient } from "@donktech/d-auth-sdk";

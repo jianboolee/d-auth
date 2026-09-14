@@ -27,6 +27,8 @@ type Config struct {
 	AllowedOrigins []string
 
 	JWTIssuer         string
+	JWTAlg            string
+	JWTSecret         string
 	JWTPrivateKeyPath string
 	JWTAccessTTL      time.Duration
 	JWTRefreshTTL     time.Duration
@@ -79,25 +81,27 @@ func Load() *Config {
 	redisAddr := firstNonEmpty(env("DAUTH_REDIS_ADDR", ""), env("REDIS_ADDR", ""), "localhost:8684")
 
 	return &Config{
-		Env:            firstNonEmpty(env("DAUTH_ENV", ""), env("APP_ENV", ""), "dev"),
-		HTTPAddr:       httpAddr,
-		PublicURL:      strings.TrimRight(publicURL, "/"),
-		WebOrigin:      webOrigin,
-		PostgresDSN:    dsn,
-		RedisAddr:      redisAddr,
-		RedisPassword:  env("DAUTH_REDIS_PASSWORD", env("REDIS_PASSWORD", "")),
-		RedisDB:        envInt("DAUTH_REDIS_DB", envInt("REDIS_DB", 0)),
-		CookieDomain:   env("DAUTH_COOKIE_DOMAIN", ""),
-		CookieSecure:   envBool("DAUTH_COOKIE_SECURE", false),
-		CookieName:     env("DAUTH_COOKIE_NAME", "dauth_session"),
-		AllowedOrigins: origins,
-		JWTIssuer:         firstNonEmpty(env("DAUTH_JWT_ISSUER", ""), strings.TrimRight(publicURL, "/")),
-		JWTPrivateKeyPath: env("DAUTH_JWT_PRIVATE_KEY_PATH", ""),
-		JWTAccessTTL:      envDuration("DAUTH_JWT_ACCESS_TTL", 15*time.Minute),
-		JWTRefreshTTL:     envDuration("DAUTH_JWT_REFRESH_TTL", 30*24*time.Hour),
-		InitAdminPhone: env("DAUTH_INIT_ADMIN_PHONE", ""),
-		InitAdminEmail: strings.ToLower(strings.TrimSpace(env("DAUTH_INIT_ADMIN_EMAIL", ""))),
-		MasterKey:      env("DAUTH_MASTER_KEY", "dev-master-key-change-me-32b!!!!!!!!"),
+		Env:                   firstNonEmpty(env("DAUTH_ENV", ""), env("APP_ENV", ""), "dev"),
+		HTTPAddr:              httpAddr,
+		PublicURL:             strings.TrimRight(publicURL, "/"),
+		WebOrigin:             webOrigin,
+		PostgresDSN:           dsn,
+		RedisAddr:             redisAddr,
+		RedisPassword:         env("DAUTH_REDIS_PASSWORD", env("REDIS_PASSWORD", "")),
+		RedisDB:               envInt("DAUTH_REDIS_DB", envInt("REDIS_DB", 0)),
+		CookieDomain:          env("DAUTH_COOKIE_DOMAIN", ""),
+		CookieSecure:          envBool("DAUTH_COOKIE_SECURE", false),
+		CookieName:            env("DAUTH_COOKIE_NAME", "dauth_session"),
+		AllowedOrigins:        origins,
+		JWTIssuer:             firstNonEmpty(env("DAUTH_JWT_ISSUER", ""), strings.TrimRight(publicURL, "/")),
+		JWTAlg:                env("DAUTH_JWT_ALG", env("JWT_ALG", "")),
+		JWTSecret:             firstNonEmpty(env("DAUTH_JWT_SECRET", ""), env("JWT_SECRET", "")),
+		JWTPrivateKeyPath:     env("DAUTH_JWT_PRIVATE_KEY_PATH", ""),
+		JWTAccessTTL:          envDuration("DAUTH_JWT_ACCESS_TTL", 15*time.Minute),
+		JWTRefreshTTL:         envDuration("DAUTH_JWT_REFRESH_TTL", 30*24*time.Hour),
+		InitAdminPhone:        env("DAUTH_INIT_ADMIN_PHONE", ""),
+		InitAdminEmail:        strings.ToLower(strings.TrimSpace(env("DAUTH_INIT_ADMIN_EMAIL", ""))),
+		MasterKey:             env("DAUTH_MASTER_KEY", "dev-master-key-change-me-32b!!!!!!!!"),
 		AliyunAccessKeyID:     env("DAUTH_ALIYUN_ACCESS_KEY_ID", ""),
 		AliyunAccessKeySecret: env("DAUTH_ALIYUN_ACCESS_KEY_SECRET", ""),
 		SMSSignName:           env("DAUTH_ALIYUN_SMS_SIGN_NAME", ""),
@@ -107,13 +111,13 @@ func Load() *Config {
 		DMAccount:             env("DAUTH_ALIYUN_DM_ACCOUNT", ""),
 		DMFromAlias:           env("DAUTH_ALIYUN_DM_FROM_ALIAS", "d-auth"),
 		DMRegion:              env("DAUTH_ALIYUN_DM_REGION", "cn-hangzhou"),
-		OSSEndpoint: env("DAUTH_OSS_ENDPOINT", ""),
-		OSSBucket:   env("DAUTH_OSS_BUCKET", ""),
-		OSSCDNBase:  strings.TrimRight(env("DAUTH_OSS_CDN_BASE", "http://localhost:8682/static/avatars"), "/"),
-		OSSPrefix:   strings.Trim(env("DAUTH_OSS_PREFIX", "avatars"), "/"),
-		WeChatWebAppID:     env("DAUTH_WECHAT_WEB_APP_ID", ""),
-		WeChatWebAppSecret: env("DAUTH_WECHAT_WEB_APP_SECRET", ""),
-		WeChatRedirectURL:  env("DAUTH_WECHAT_REDIRECT_URL", strings.TrimRight(publicURL, "/")+"/v1/auth/wechat/callback"),
+		OSSEndpoint:           env("DAUTH_OSS_ENDPOINT", ""),
+		OSSBucket:             env("DAUTH_OSS_BUCKET", ""),
+		OSSCDNBase:            strings.TrimRight(env("DAUTH_OSS_CDN_BASE", "http://localhost:8682/static/avatars"), "/"),
+		OSSPrefix:             strings.Trim(env("DAUTH_OSS_PREFIX", "avatars"), "/"),
+		WeChatWebAppID:        env("DAUTH_WECHAT_WEB_APP_ID", ""),
+		WeChatWebAppSecret:    env("DAUTH_WECHAT_WEB_APP_SECRET", ""),
+		WeChatRedirectURL:     env("DAUTH_WECHAT_REDIRECT_URL", strings.TrimRight(publicURL, "/")+"/v1/auth/wechat/callback"),
 	}
 }
 

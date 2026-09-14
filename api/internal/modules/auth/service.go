@@ -499,7 +499,7 @@ func (s *Service) maybePromoteAdmin(user *models.User, phone, email string) {
 		return
 	}
 	var n int64
-	s.store.DB.Raw(`SELECT COUNT(1) FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE r.code = 'superadmin'`).Scan(&n)
+	s.store.DB.Raw(`SELECT COUNT(1) FROM auth_user_roles ur JOIN auth_roles r ON r.id = ur.role_id WHERE r.code = 'superadmin'`).Scan(&n)
 	if n > 0 {
 		return
 	}

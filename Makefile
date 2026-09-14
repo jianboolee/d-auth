@@ -8,7 +8,7 @@ help:
 	@echo "  make up             起本地 Postgres:$(PG_PORT) + Redis:$(REDIS_PORT)"
 	@echo "  make api            启动后端 :$(API_PORT)"
 	@echo "  make web            启动前端 :$(WEB_PORT)"
-	@echo "  make migrate        执行数据库迁移"
+	@echo "  make migrate        单独执行数据库迁移"
 	@echo "  make docker-dev     本地开发栈（热重载）前端 :$(WEB_PORT)"
 	@echo "  make docker-build   构建发布镜像"
 	@echo "  make docker-release 构建并推送 $(DOCKER_IMAGE):$(DOCKER_TAG)"

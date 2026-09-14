@@ -49,11 +49,11 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 	if q.Q != "" {
 		like := "%" + q.Q + "%"
 		tx = tx.Where(`id::text ILIKE ? OR nickname ILIKE ? OR id IN (
-			SELECT user_id FROM identities WHERE identifier ILIKE ?
+			SELECT user_id FROM auth_identities WHERE identifier ILIKE ?
 		)`, like, like, like)
 	}
 	if q.Role != "" {
-		tx = tx.Where(`id IN (SELECT ur.user_id FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE r.code = ?)`, q.Role)
+		tx = tx.Where(`id IN (SELECT ur.user_id FROM auth_user_roles ur JOIN auth_roles r ON r.id = ur.role_id WHERE r.code = ?)`, q.Role)
 	}
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {

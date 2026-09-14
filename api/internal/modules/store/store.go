@@ -70,7 +70,7 @@ func (s *Store) ReplaceRoles(tx *gorm.DB, userID uuid.UUID, codes []string) erro
 
 func (s *Store) RoleCodes(userID uuid.UUID) ([]string, error) {
 	var codes []string
-	err := s.DB.Raw(`SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ?`, userID).Scan(&codes).Error
+	err := s.DB.Raw(`SELECT r.code FROM auth_roles r JOIN auth_user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ?`, userID).Scan(&codes).Error
 	return codes, err
 }
 

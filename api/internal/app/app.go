@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/gin-gonic/gin"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/httpx"
 	"github.com/jianboolee/d-auth/internal/infra/database"
@@ -20,7 +21,6 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/codes"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
-	"github.com/gin-gonic/gin"
 )
 
 func New(cfg *config.Config) (*gin.Engine, error) {
@@ -36,10 +36,18 @@ func New(cfg *config.Config) (*gin.Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	jwt, err := tokens.NewManager(cfg.JWTIssuer, cfg.JWTPrivateKeyPath, cfg.JWTAccessTTL)
+	jwt, err := tokens.NewManager(tokens.Options{
+		Issuer:    cfg.JWTIssuer,
+		Alg:       cfg.JWTAlg,
+		Secret:    cfg.JWTSecret,
+		KeyPath:   cfg.JWTPrivateKeyPath,
+		AccessTTL: cfg.JWTAccessTTL,
+		Dev:       cfg.IsDev(),
+	})
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("jwt signer ready", "alg", jwt.Alg())
 
 	var smsSender sms.Sender = &sms.Mock{}
 	if !cfg.UseMockSMS() {

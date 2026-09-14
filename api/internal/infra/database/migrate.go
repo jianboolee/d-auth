@@ -11,7 +11,7 @@ import (
 )
 
 func Migrate(db *gorm.DB, dir string) error {
-	if err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+	if err := db.Exec(`CREATE TABLE IF NOT EXISTS auth_schema_migrations (
 		version TEXT PRIMARY KEY,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`).Error; err != nil {
@@ -33,7 +33,7 @@ func Migrate(db *gorm.DB, dir string) error {
 
 	for _, name := range names {
 		var n int64
-		if err := db.Raw("SELECT COUNT(1) FROM schema_migrations WHERE version = ?", name).Scan(&n).Error; err != nil {
+		if err := db.Raw("SELECT COUNT(1) FROM auth_schema_migrations WHERE version = ?", name).Scan(&n).Error; err != nil {
 			return err
 		}
 		if n > 0 {
@@ -48,7 +48,7 @@ func Migrate(db *gorm.DB, dir string) error {
 				return fmt.Errorf("apply %s: %w", name, err)
 			}
 		}
-		if err := db.Exec("INSERT INTO schema_migrations (version) VALUES (?)", name).Error; err != nil {
+		if err := db.Exec("INSERT INTO auth_schema_migrations (version) VALUES (?)", name).Error; err != nil {
 			return err
 		}
 	}

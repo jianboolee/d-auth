@@ -11,4 +11,4 @@
 
 App / 小程序用 `mode: "token"`，不要依赖 Cookie。
 
-其它后端：`GET /v1/.well-known/jwks.json` 验 RS256 JWT；用户管理用 `Authorization: Bearer dak_live_...`。
+其它后端：默认验 HS256（共享 `JWT_SECRET`）；`RS256` 时用 `GET /v1/.well-known/jwks.json`。用户管理用 `Authorization: Bearer dak_live_...`。

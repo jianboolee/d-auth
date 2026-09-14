@@ -134,7 +134,7 @@ type User struct {
 	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
 }
 
-func (User) TableName() string { return "users" }
+func (User) TableName() string { return "auth_users" }
 
 type Identity struct {
 	ID         uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
@@ -146,7 +146,7 @@ type Identity struct {
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
-func (Identity) TableName() string { return "identities" }
+func (Identity) TableName() string { return "auth_identities" }
 
 type Role struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
@@ -157,7 +157,7 @@ type Role struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-func (Role) TableName() string { return "roles" }
+func (Role) TableName() string { return "auth_roles" }
 
 type UserRole struct {
 	UserID    uuid.UUID `gorm:"type:uuid;primaryKey" json:"user_id"`
@@ -165,7 +165,7 @@ type UserRole struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (UserRole) TableName() string { return "user_roles" }
+func (UserRole) TableName() string { return "auth_user_roles" }
 
 type Client struct {
 	ID                 uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
@@ -181,7 +181,7 @@ type Client struct {
 	UpdatedAt          time.Time `json:"updated_at"`
 }
 
-func (Client) TableName() string { return "clients" }
+func (Client) TableName() string { return "auth_clients" }
 
 type APIKey struct {
 	ID         uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
@@ -196,7 +196,7 @@ type APIKey struct {
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
-func (APIKey) TableName() string { return "api_keys" }
+func (APIKey) TableName() string { return "auth_api_keys" }
 
 type Session struct {
 	ID               uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
@@ -212,7 +212,7 @@ type Session struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
-func (Session) TableName() string { return "sessions" }
+func (Session) TableName() string { return "auth_sessions" }
 
 type AuditLog struct {
 	ID           uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
@@ -226,4 +226,4 @@ type AuditLog struct {
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
-func (AuditLog) TableName() string { return "audit_logs" }
+func (AuditLog) TableName() string { return "auth_audit_logs" }
