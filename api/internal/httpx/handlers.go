@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/contextx"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/admin"
 	"github.com/jianboolee/d-auth/internal/modules/auth"
@@ -373,7 +374,7 @@ func (h *Handlers) Identities(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	response.OK(c, list)
+	response.OK(c, dto.FromIdentities(list))
 }
 
 func (h *Handlers) DeleteIdentity(c *gin.Context) {
@@ -480,7 +481,7 @@ func (h *Handlers) AdminUsers(c *gin.Context) {
 }
 
 func (h *Handlers) AdminUser(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := idgen.ParseUserID(c.Param("id"))
 	if err != nil {
 		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
 		return
@@ -490,7 +491,7 @@ func (h *Handlers) AdminUser(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	response.OK(c, gin.H{"user": u, "identities": idents, "sessions": sess})
+	response.OK(c, gin.H{"user": u, "identities": dto.FromIdentities(idents), "sessions": dto.FromSessions(sess)})
 }
 
 func (h *Handlers) AdminCreateUser(c *gin.Context) {
@@ -503,7 +504,10 @@ func (h *Handlers) AdminCreateUser(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	h.audit(c, "user.create", &u.ID, nil)
+	// dto 对外给的是 16 位串，审计表里仍存 uuid 字节，这里还原一次。
+	if target, perr := idgen.ParseUserID(u.ID); perr == nil {
+		h.audit(c, "user.create", &target, nil)
+	}
 	response.OK(c, u)
 }
 
@@ -514,7 +518,7 @@ type patchUserReq struct {
 }
 
 func (h *Handlers) AdminPatchUser(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := idgen.ParseUserID(c.Param("id"))
 	if err != nil {
 		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
 		return
@@ -537,7 +541,7 @@ type resetPassReq struct {
 }
 
 func (h *Handlers) AdminResetPassword(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := idgen.ParseUserID(c.Param("id"))
 	if err != nil {
 		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
 		return
@@ -663,11 +667,11 @@ func (h *Handlers) AdminAudit(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	response.OK(c, gin.H{"items": list, "total": total, "page": page, "size": size})
+	response.OK(c, gin.H{"items": dto.FromAuditLogs(list), "total": total, "page": page, "size": size})
 }
 
 func (h *Handlers) InternalUser(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	id, err := idgen.ParseUserID(c.Param("id"))
 	if err != nil {
 		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
 		return

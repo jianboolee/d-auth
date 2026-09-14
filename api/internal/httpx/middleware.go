@@ -90,7 +90,11 @@ func Authenticate(cfg *config.Config, authSvc *auth.Service) gin.HandlerFunc {
 				response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "登录已失效")
 				return
 			}
-			uid, _ := uuid.Parse(claims.Subject)
+			uid, err := idgen.ParseUserID(claims.Subject)
+			if err != nil {
+				response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "登录已失效")
+				return
+			}
 			sid, _ := uuid.Parse(claims.SessionID)
 			cid, _ := uuid.Parse(claims.ClientID)
 			user, err := authSvc.Store().UserByID(uid)

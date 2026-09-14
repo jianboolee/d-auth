@@ -4,12 +4,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/normalize"
 )
 
 type User struct {
-	ID          uuid.UUID  `json:"id"`
+	// 新用户为 16 位小写字母数字串，历史用户为 uuid v7 字符串。
+	ID          string     `json:"id"`
 	Nickname    string     `json:"nickname"`
 	AvatarURL   string     `json:"avatar_url"`
 	Bio         string     `json:"bio"`
@@ -35,7 +37,7 @@ type TokenResult struct {
 // （含图片处理后缀），避免各模块重复实现 URL 拼接。
 func FromUser(u *models.User, roles []string, idents []models.Identity, avatar func(string) string) User {
 	out := User{
-		ID:          u.ID,
+		ID:          idgen.FormatUserID(u.ID),
 		Nickname:    u.Nickname,
 		AvatarURL:   avatar(u.AvatarKey),
 		Bio:         u.Bio,
@@ -65,4 +67,70 @@ func Masked(u User) User {
 		u.Email = normalize.MaskEmail(u.Email)
 	}
 	return u
+}
+
+// Identity 对外暴露的绑定身份。user_id 转成对外的用户 ID 形式（新用户 16 位串）。
+type Identity struct {
+	ID         uuid.UUID      `json:"id"`
+	UserID     string         `json:"user_id"`
+	Type       string         `json:"type"`
+	Identifier string         `json:"identifier"`
+	Extra      models.JSONMap `json:"extra"`
+	VerifiedAt *time.Time     `json:"verified_at"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
+func FromIdentity(id *models.Identity) Identity {
+	return Identity{
+		ID:         id.ID,
+		UserID:     idgen.FormatUserID(id.UserID),
+		Type:       id.Type,
+		Identifier: id.Identifier,
+		Extra:      id.Extra,
+		VerifiedAt: id.VerifiedAt,
+		CreatedAt:  id.CreatedAt,
+	}
+}
+
+func FromIdentities(list []models.Identity) []Identity {
+	out := make([]Identity, 0, len(list))
+	for i := range list {
+		out = append(out, FromIdentity(&list[i]))
+	}
+	return out
+}
+
+// AuditLog 对外暴露审计记录。actor/target 是用户 ID，转成对外的 16 位串形式；
+// api_key_id 属于 API Key，保持 uuid 字符串。
+type AuditLog struct {
+	ID           uuid.UUID  `json:"id"`
+	ActorUserID  *string    `json:"actor_user_id"`
+	APIKeyID     *uuid.UUID `json:"api_key_id"`
+	Action       string     `json:"action"`
+	TargetUserID *string    `json:"target_user_id"`
+	IP           string     `json:"ip"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+func FromAuditLogs(list []models.AuditLog) []AuditLog {
+	out := make([]AuditLog, 0, len(list))
+	for i := range list {
+		item := AuditLog{
+			ID:        list[i].ID,
+			APIKeyID:  list[i].APIKeyID,
+			Action:    list[i].Action,
+			IP:        list[i].IP,
+			CreatedAt: list[i].CreatedAt,
+		}
+		if list[i].ActorUserID != nil {
+			s := idgen.FormatUserID(*list[i].ActorUserID)
+			item.ActorUserID = &s
+		}
+		if list[i].TargetUserID != nil {
+			s := idgen.FormatUserID(*list[i].TargetUserID)
+			item.TargetUserID = &s
+		}
+		out = append(out, item)
+	}
+	return out
 }

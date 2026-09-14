@@ -23,7 +23,7 @@ func (s *Store) CreateUser(tx *gorm.DB, u *models.User, roleCodes ...string) err
 		tx = s.DB
 	}
 	if u.ID == uuid.Nil {
-		u.ID = idgen.New()
+		u.ID = idgen.NewUserID()
 	}
 	now := time.Now()
 	u.CreatedAt = now

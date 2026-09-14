@@ -17,6 +17,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jianboolee/d-auth/internal/idgen"
 )
 
 const (
@@ -108,11 +109,12 @@ func (m *Manager) Alg() string { return m.alg }
 func (m *Manager) Sign(userID, sessionID, clientID uuid.UUID, roles []string) (string, string, error) {
 	jti := uuid.NewString()
 	now := time.Now()
+	// sub 用对外的用户 ID 形式：新用户是 16 位串，历史用户是 uuid 字符串。
 	claims := Claims{
 		Roles: roles,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    m.issuer,
-			Subject:   userID.String(),
+			Subject:   idgen.FormatUserID(userID),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.accessTTL)),
 			ID:        jti,

@@ -291,7 +291,7 @@ func (s *Service) WeChatQRStatus(ctx context.Context, ticket string) (map[string
 		return payload, nil, nil, nil
 	}
 	userID, _ := payload["user_id"].(string)
-	uid, err := uuid.Parse(userID)
+	uid, err := idgen.ParseUserID(userID)
 	if err != nil {
 		return payload, nil, nil, nil
 	}
@@ -316,7 +316,7 @@ func (s *Service) WeChatCallback(ctx context.Context, code, ticket string, meta 
 	if err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]any{"status": "confirmed", "user_id": user.ID.String()})
+	payload, _ := json.Marshal(map[string]any{"status": "confirmed", "user_id": idgen.FormatUserID(user.ID)})
 	return s.rdb.Set(ctx, "wxqr:"+ticket, payload, 5*time.Minute).Err()
 }
 
@@ -354,7 +354,7 @@ func (s *Service) MockWeChatConfirm(ctx context.Context, ticket, openID string) 
 	if err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]any{"status": "confirmed", "user_id": user.ID.String()})
+	payload, _ := json.Marshal(map[string]any{"status": "confirmed", "user_id": idgen.FormatUserID(user.ID)})
 	return s.rdb.Set(ctx, "wxqr:"+ticket, payload, 5*time.Minute).Err()
 }
 

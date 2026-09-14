@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/infra/ossstore"
 	"github.com/jianboolee/d-auth/internal/infra/password"
 	"github.com/jianboolee/d-auth/internal/models"
@@ -203,7 +204,9 @@ func (s *Service) SignAvatar(userID uuid.UUID, contentType string) (map[string]a
 	default:
 		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_TYPE", "仅支持 jpeg/png/webp")
 	}
-	key, upload, pub, headers, err := s.oss.SignPut(contentType, userID.String())
+	// 对象键里用对外的用户 ID 形式（新用户 16 位串、历史用户 uuid 串）。
+	// sign 与 confirm 走同一个函数，新旧用户的 key 都能校验通过。
+	key, upload, pub, headers, err := s.oss.SignPut(contentType, idgen.FormatUserID(userID))
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +220,7 @@ func (s *Service) SignAvatar(userID uuid.UUID, contentType string) (map[string]a
 
 func (s *Service) ConfirmAvatar(userID uuid.UUID, objectKey string) (dto.User, error) {
 	key := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
-	if key == "" || !strings.HasPrefix(key, s.cfg.OSSRootDir+"/") || !strings.Contains(key, "/"+userID.String()+"/") {
+	if key == "" || !strings.HasPrefix(key, s.cfg.OSSRootDir+"/") || !strings.Contains(key, "/"+idgen.FormatUserID(userID)+"/") {
 		return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_KEY", "无效的头像 key")
 	}
 	if err := s.store.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{

@@ -4,6 +4,10 @@ CREATE TABLE IF NOT EXISTS auth_schema_migrations (
 );
 
 CREATE TABLE IF NOT EXISTS auth_users (
+    -- id 保持 UUID 列类型不变，仍兼容 uuid v7 的格式与长度（16 字节）。
+    -- 新用户的 ID 改为 16 位小写字母数字串（xid 风格），按一字符一字节打包进
+    -- 这 16 字节；历史用户仍是 uuid v7。两者可共存于同一列，旧数据无需迁移。
+    -- 对外由 idgen.FormatUserID 还原成 16 位串，见 internal/idgen。
     id UUID PRIMARY KEY,
     nickname TEXT NOT NULL DEFAULT '',
     avatar_key TEXT NOT NULL DEFAULT '',

@@ -120,6 +120,9 @@ func (m *JSONMap) Scan(value any) error {
 }
 
 type User struct {
+	// 新用户的 ID 是 16 位小写字母数字串（xid 风格），打包进 uuid 的 16 字节；
+	// 历史用户仍是 uuid v7。列类型保持 uuid 不变，依旧兼容 uuid v7 的格式与长度，
+	// 因此新旧 ID 并存、无需数据迁移。对外由 idgen.FormatUserID 还原成 16 位串。
 	ID           uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
 	Nickname     string     `json:"nickname"`
 	AvatarKey    string     `json:"avatar_key"`
