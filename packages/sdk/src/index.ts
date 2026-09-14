@@ -440,8 +440,10 @@ export type Identity = {
 
 export type Session = {
   id: string;
-  user_id: string;
   ip: string;
+  /** 已归纳的设备描述，如 "Chrome 152 · macOS" */
+  device: string;
+  /** 原始 User-Agent，仅用于排查问题 */
   user_agent: string;
   expires_at: string;
   revoked_at?: string | null;

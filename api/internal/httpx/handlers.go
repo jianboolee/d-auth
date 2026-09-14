@@ -397,7 +397,7 @@ func (h *Handlers) Sessions(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	response.OK(c, list)
+	response.OK(c, dto.FromSessions(list))
 }
 
 func (h *Handlers) DeleteSession(c *gin.Context) {

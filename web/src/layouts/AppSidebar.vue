@@ -29,10 +29,9 @@ function ri(cls: string) {
 const accountMenu = computed<MenuOption[]>(() => {
   const base = paths.accountBase();
   return [
-    { label: "资料", key: `${base}/profile`, icon: ri("ri-user-line") },
-    { label: "安全", key: `${base}/security`, icon: ri("ri-shield-keyhole-line") },
-    { label: "登录方式", key: `${base}/identities`, icon: ri("ri-link") },
-    { label: "会话", key: `${base}/sessions`, icon: ri("ri-device-line") },
+    { label: "个人资料", key: `${base}/profile`, icon: ri("ri-user-line") },
+    { label: "账户安全", key: `${base}/security`, icon: ri("ri-shield-keyhole-line") },
+    { label: "登录设备", key: `${base}/sessions`, icon: ri("ri-device-line") },
   ];
 });
 

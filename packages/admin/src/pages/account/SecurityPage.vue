@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput, useDialog, useMessage } from "naive-ui";
+import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput, useMessage } from "naive-ui";
+import type { Identity } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../../client";
+import { useConfirm } from "../../confirm";
 import { useAuthSession } from "../../session";
-import { errMessage } from "../../labels";
+import { errMessage, identityLabel } from "../../labels";
 
 const client = useAdminClient();
 const session = useAuthSession();
 const { user } = session;
 const message = useMessage();
-const dialog = useDialog();
+const confirm = useConfirm();
 
 type Panel = "password" | "phone" | "email";
 const panel = ref<Panel>("password");
@@ -20,11 +22,26 @@ const pw = reactive({ old: "", next: "", confirm: "" });
 const ph = reactive({ oldCode: "", next: "", newCode: "", sendingOld: false, sendingNew: false });
 const em = reactive({ next: "", code: "", sending: false });
 
+// 第三方登录方式（微信），由 /v1/me/identities 提供
+const identities = ref<Identity[]>([]);
+const identitiesLoading = ref(false);
+
 const phoneValid = computed(() => /^1\d{10}$/.test(ph.next.trim()));
 const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em.next.trim()));
 const hasPassword = computed(() => !!user.value?.has_password);
 const boundPhone = computed(() => user.value?.phone ?? "");
 const boundEmail = computed(() => user.value?.email ?? "");
+
+// 第三方登录方式：以后新增一种方式，在下面数组加一条即可
+// （type 为后端 auth_identities.type 的取值，icon 为 remixicon 类名）
+const THIRD_PARTY = [{ type: "wechat_open", label: "微信", icon: "ri-wechat-line" }];
+
+const thirdPartyRows = computed(() =>
+  THIRD_PARTY.map((p) => ({
+    ...p,
+    ident: identities.value.find((i) => i.type === p.type),
+  })),
+);
 
 function maskPhone(raw?: string) {
   if (!raw) return "";
@@ -79,21 +96,21 @@ const rows = computed(() => [
     key: "password" as Panel,
     icon: "ri-lock-password-line",
     title: "登录密码",
-    sub: hasPassword.value ? "已设置" : "未设置，建议设置密码以便登录",
-    action: hasPassword.value ? "修改密码" : "设置密码",
+    status: hasPassword.value ? "已设置" : "未设置",
+    action: hasPassword.value ? "修改" : "设置",
   },
   {
     key: "phone" as Panel,
     icon: "ri-smartphone-line",
-    title: "手机号",
-    sub: boundPhone.value ? `已绑定 ${maskPhone(boundPhone.value)}` : "未绑定",
+    title: "手机号码",
+    status: boundPhone.value ? maskPhone(boundPhone.value) : "未绑定",
     action: boundPhone.value ? "更换" : "绑定",
   },
   {
     key: "email" as Panel,
     icon: "ri-mail-line",
     title: "邮箱",
-    sub: boundEmail.value ? `已绑定 ${maskEmail(boundEmail.value)}` : "未绑定",
+    status: boundEmail.value ? maskEmail(boundEmail.value) : "未绑定",
     action: boundEmail.value ? "更换" : "绑定",
   },
 ]);
@@ -207,11 +224,10 @@ function submitPassword() {
     message.error("两次输入的密码不一致");
     return;
   }
-  dialog.warning({
+  confirm({
     title: "确认修改密码",
     content: "修改后其它设备将退出登录，需要用新密码重新登录。",
     positiveText: "确认修改",
-    negativeText: "取消",
     onPositiveClick: async () => {
       busy.value = true;
       try {
@@ -242,11 +258,10 @@ function submitPhone() {
     return;
   }
   const next = ph.next.trim();
-  dialog.warning({
+  confirm({
     title: bound ? "确认更换手机号" : "确认绑定手机号",
     content: `手机号将变更为 ${maskPhone(next)}，之后可用它接收验证码登录。`,
     positiveText: "确认",
-    negativeText: "取消",
     onPositiveClick: async () => {
       busy.value = true;
       try {
@@ -279,11 +294,10 @@ function submitEmail() {
   }
   const next = em.next.trim();
   const bound = !!boundEmail.value;
-  dialog.warning({
+  confirm({
     title: bound ? "确认更换邮箱" : "确认绑定邮箱",
     content: `邮箱将变更为 ${next}，之后可用它登录和找回密码。`,
     positiveText: "确认",
-    negativeText: "取消",
     onPositiveClick: async () => {
       busy.value = true;
       try {
@@ -304,25 +318,95 @@ const isMobile = ref(typeof window !== "undefined" && window.innerWidth < 640);
 function onResize() {
   isMobile.value = window.innerWidth < 640;
 }
-onMounted(() => window.addEventListener("resize", onResize));
+
+async function loadIdentities() {
+  identitiesLoading.value = true;
+  try {
+    identities.value = await client.identities();
+  } catch (e: unknown) {
+    message.error(errMessage(e));
+  } finally {
+    identitiesLoading.value = false;
+  }
+}
+
+function confirmUnbind(row: Identity) {
+  confirm({
+    title: "确认解绑",
+    content: `解绑后将无法再使用「${identityLabel(row.type)}」登录，且需要至少保留一种登录方式。`,
+    positiveText: "解绑",
+    onPositiveClick: async () => {
+      try {
+        await client.deleteIdentity(row.id);
+        message.success("已解绑");
+        await loadIdentities();
+      } catch (e: unknown) {
+        message.error(errMessage(e));
+      }
+    },
+  });
+}
+
+// 绑定第三方需要后端支持「已登录状态下绑定」，目前仅提供登录入口。
+function bindThirdParty(label: string) {
+  message.info(`暂不支持在账号内绑定${label}，请使用${label}登录后再操作`);
+}
+
+// 临时：预览确认弹窗样式，确认后删除此按钮与函数
+function previewDialog() {
+  confirm({
+    title: "确认更换手机号",
+    content: "手机号将变更为 139****1111，之后可用它接收验证码登录。",
+    positiveText: "确认",
+    onPositiveClick: () => {
+      message.success("已确认（仅预览，未执行任何操作）");
+    },
+  });
+}
+
+onMounted(() => {
+  window.addEventListener("resize", onResize);
+  loadIdentities();
+});
 onUnmounted(() => window.removeEventListener("resize", onResize));
 </script>
 
 <template>
   <div class="dauth-page security">
     <header class="head">
-      <h1>安全</h1>
-      <p>管理你的登录密码与账号凭据</p>
+      <div>
+        <h1>安全</h1>
+        <p>管理你的登录密码与账号凭据</p>
+      </div>
+      <!-- 临时：预览确认弹窗样式，确认后删除 -->
+      <n-button size="small" @click="previewDialog">预览弹窗</n-button>
     </header>
 
     <div class="list">
       <div v-for="row in rows" :key="row.key" class="row">
         <i :class="`${row.icon} dauth-ri row-icon`" />
-        <div class="row-main">
-          <div class="row-title">{{ row.title }}</div>
-          <div class="row-sub">{{ row.sub }}</div>
+        <span class="row-title">{{ row.title }}</span>
+        <div class="row-meta">
+          <span class="row-status">{{ row.status }}</span>
+          <span class="row-sep">·</span>
+          <n-button size="small" quaternary @click="open(row.key)">{{ row.action }}</n-button>
         </div>
-        <n-button size="small" @click="open(row.key)">{{ row.action }}</n-button>
+      </div>
+
+      <!-- 第三方登录方式（微信等），与上面几行同一列表 -->
+      <div v-for="tp in thirdPartyRows" :key="tp.type" class="row">
+        <i :class="`${tp.icon} dauth-ri row-icon`" />
+        <span class="row-title">{{ tp.label }}</span>
+        <div class="row-meta">
+          <span class="row-status">{{ identitiesLoading ? "加载中" : tp.ident ? "已绑定" : "未绑定" }}</span>
+          <template v-if="!identitiesLoading">
+            <span class="row-sep">·</span>
+            <n-button v-if="tp.ident" size="small" quaternary type="error" @click="confirmUnbind(tp.ident)">
+              解绑
+            </n-button>
+            <n-button v-else size="small" quaternary @click="bindThirdParty(tp.label)">绑定</n-button>
+          </template>
+        </div>
       </div>
     </div>
 
@@ -423,6 +507,10 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
 
 <style scoped>
 .head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 20px;
 }
 .head h1 {
@@ -442,8 +530,8 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
 .row {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
+  gap: 12px;
+  padding: 12px 18px;
 }
 .row + .row {
   border-top: 1px solid var(--dauth-border);
@@ -453,17 +541,28 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
   color: var(--dauth-text-secondary);
   flex-shrink: 0;
 }
-.row-main {
+.row-title {
   flex: 1;
   min-width: 0;
-}
-.row-title {
   font-size: 14px;
   font-weight: 500;
+  color: var(--dauth-text);
 }
-.row-sub {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--dauth-text-secondary);
+.row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.row-status {
+  font-size: 13px;
+  color: var(--dauth-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.row-sep {
+  color: var(--dauth-border);
 }
 </style>

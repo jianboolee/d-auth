@@ -16,6 +16,7 @@ import {
 } from "naive-ui";
 import type { Identity, Session, User } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
+import { formatDateTime } from "../datetime";
 import { errMessage, identityLabel, roleLabel, statusLabel } from "../labels";
 
 const props = defineProps<{ basePath?: string }>();
@@ -116,7 +117,8 @@ onMounted(load);
       </n-card>
       <n-card title="会话">
         <div v-for="s in sessions" :key="s.id" class="row">
-          {{ s.ip }} · {{ s.user_agent }} · {{ s.revoked_at ? "已失效" : "有效" }}
+          {{ s.device }} · {{ s.ip || "—" }} · {{ formatDateTime(s.created_at) }} ·
+          {{ s.revoked_at ? "已失效" : "有效" }}
         </div>
         <div v-if="!sessions.length" class="dauth-empty">
           <i class="ri-inbox-2-line dauth-ri" />

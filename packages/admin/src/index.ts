@@ -2,6 +2,7 @@ import type { RouteRecordRaw } from "vue-router";
 import { setAdminClient, useAdminClient } from "./client";
 import { provideAuthSession, useAuthSession } from "./session";
 import { useAuthPaths, useEmbed } from "./paths";
+import { useConfirm } from "./confirm";
 import UsersPage from "./pages/UsersPage.vue";
 import UserDetailPage from "./pages/UserDetailPage.vue";
 import RolesPage from "./pages/RolesPage.vue";
@@ -16,10 +17,10 @@ import TermsPage from "./pages/legal/TermsPage.vue";
 import PrivacyPage from "./pages/legal/PrivacyPage.vue";
 import ProfilePage from "./pages/account/ProfilePage.vue";
 import SecurityPage from "./pages/account/SecurityPage.vue";
-import IdentitiesPage from "./pages/account/IdentitiesPage.vue";
 import SessionsPage from "./pages/account/SessionsPage.vue";
 
-export { setAdminClient, useAdminClient, provideAuthSession, useAuthSession, useAuthPaths, useEmbed };
+export { setAdminClient, useAdminClient, provideAuthSession, useAuthSession, useAuthPaths, useEmbed, useConfirm };
+export type { ConfirmOptions } from "./confirm";
 export {
   UsersPage,
   UserDetailPage,
@@ -35,7 +36,6 @@ export {
   PrivacyPage,
   ProfilePage,
   SecurityPage,
-  IdentitiesPage,
   SessionsPage,
 };
 
@@ -73,7 +73,8 @@ export function createAuthAccountRoutes(opts: { basePath?: string } = {}): Route
   return [
     { path: `${base}/profile`, component: ProfilePage, meta: { title: "个人资料" } },
     { path: `${base}/security`, component: SecurityPage, meta: { title: "安全" } },
-    { path: `${base}/identities`, component: IdentitiesPage, meta: { title: "登录方式" } },
+    // 旧的「登录方式」已并入安全页，保留重定向以兼容已有链接
+    { path: `${base}/identities`, redirect: `${base}/security` },
     { path: `${base}/sessions`, component: SessionsPage, meta: { title: "会话" } },
   ];
 }
@@ -103,5 +104,7 @@ export function asChildRoutes(routes: RouteRecordRaw[], base: string): RouteReco
     component: r.component,
     props: r.props,
     meta: r.meta,
+    // 透传重定向，否则纯 redirect 路由挂为子路由后会变成空页面
+    ...("redirect" in r ? { redirect: r.redirect } : {}),
   }));
 }

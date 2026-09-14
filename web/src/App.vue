@@ -62,6 +62,11 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
   Dialog: {
     closeSize: "30px",
     closeIconSize: "16px",
+    // 全站弹窗不显示图标：naive-ui 无法全局设置 showIcon，
+    // 这里把图标尺寸与间距归零（弹窗内部改用 useConfirm，见 packages/admin/src/confirm.ts）
+    iconSize: "0",
+    iconMargin: "0",
+    iconMarginIconTop: "0",
   },
   // 用户下拉：加内边距、隐藏分割线、选项更宽松
   Dropdown: {
