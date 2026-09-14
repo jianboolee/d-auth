@@ -1,0 +1,69 @@
+:root {
+  --dauth-bg: #f7f8fa;
+  --dauth-sidebar-bg: #f3f4f6;
+  --dauth-surface: #ffffff;
+  --dauth-border: #ececec;
+  --dauth-text: #1a1a1a;
+  --dauth-text-secondary: #6b6b6b;
+  --dauth-primary: #1a1a1a;
+  --dauth-primary-fg: #ffffff;
+  --dauth-radius: 10px;
+  --dauth-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+  background: var(--dauth-bg);
+  color: var(--dauth-text);
+  font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+}
+
+.dauth-ri {
+  font-size: 16px;
+  line-height: 1;
+  color: inherit;
+}
+
+.n-menu .dauth-ri,
+.n-button .dauth-ri {
+  font-size: 16px;
+}
+
+.dauth-page {
+  max-width: 960px;
+}
+
+.dauth-page.wide {
+  max-width: none;
+}
+
+.dauth-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 0;
+  color: var(--dauth-text-secondary);
+  font-size: 14px;
+}
+
+.dauth-empty .dauth-ri {
+  font-size: 32px;
+}
+
+.dauth-code-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.dauth-code-row .n-input {
+  flex: 1;
+}

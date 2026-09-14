@@ -12,7 +12,7 @@ const columns: DataTableColumns<AuditLog> = [
   { title: "动作", key: "action" },
   { title: "操作者", key: "actor_user_id" },
   { title: "对象", key: "target_user_id" },
-  { title: "IP", key: "ip" },
+  { title: "IP 地址", key: "ip" },
 ];
 
 onMounted(async () => {
@@ -22,7 +22,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-card title="审计日志" class="d-auth-admin">
-    <n-data-table :columns="columns" :data="items" />
+  <n-card title="审计日志" class="d-auth-admin dauth-page wide">
+    <n-data-table :columns="columns" :data="items">
+      <template #empty>
+        <div class="dauth-empty"><i class="ri-inbox-2-line dauth-ri" />暂无数据</div>
+      </template>
+    </n-data-table>
   </n-card>
 </template>

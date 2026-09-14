@@ -8,7 +8,7 @@ export function setAdminClient(c: DAuthClient) {
 
 export function useAdminClient(): DAuthClient {
   if (!client) {
-    throw new Error("d-auth admin client is not set. Call setAdminClient() first.");
+    throw new Error("尚未设置账户客户端，请先调用 setAdminClient");
   }
   return client;
 }

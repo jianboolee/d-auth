@@ -20,7 +20,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-card title="角色" class="d-auth-admin">
-    <n-data-table :columns="columns" :data="items" />
+  <n-card title="角色" class="d-auth-admin dauth-page wide">
+    <n-data-table :columns="columns" :data="items">
+      <template #empty>
+        <div class="dauth-empty"><i class="ri-inbox-2-line dauth-ri" />暂无数据</div>
+      </template>
+    </n-data-table>
   </n-card>
 </template>

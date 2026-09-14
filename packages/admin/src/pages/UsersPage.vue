@@ -5,6 +5,7 @@ import type { DataTableColumns } from "naive-ui";
 import { useRouter } from "vue-router";
 import type { User } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
+import { errMessage, roleLabel, statusLabel } from "../labels";
 
 const props = defineProps<{ basePath?: string }>();
 const client = useAdminClient();
@@ -27,8 +28,8 @@ async function load() {
     const data = await client.adminUsers(q);
     items.value = data.items;
     total.value = data.total;
-  } catch (e: any) {
-    message.error(e.message ?? "加载失败");
+  } catch (e: unknown) {
+    message.error(errMessage(e, "加载失败"));
   } finally {
     loading.value = false;
   }
@@ -39,6 +40,10 @@ function open(id: string) {
   router.push(`${base}/users/${id}`);
 }
 
+function create() {
+  router.push(`${props.basePath ?? "/admin"}/users/new`);
+}
+
 const columns: DataTableColumns<User> = [
   { title: "昵称", key: "nickname" },
   { title: "手机", key: "phone", render: (r) => r.phone || "-" },
@@ -46,17 +51,26 @@ const columns: DataTableColumns<User> = [
   {
     title: "角色",
     key: "roles",
-    render: (r) => h(NSpace, { size: 4 }, () => r.roles.map((role) => h(NTag, { size: "small", bordered: false }, { default: () => role }))),
+    render: (r) =>
+      h(NSpace, { size: 4 }, () =>
+        r.roles.map((role) => h(NTag, { size: "small", bordered: false }, { default: () => roleLabel(role) })),
+      ),
   },
   {
     title: "状态",
     key: "status",
-    render: (r) => h(NTag, { type: r.status === "active" ? "success" : "warning", size: "small" }, { default: () => r.status }),
+    render: (r) =>
+      h(NTag, { type: r.status === "active" ? "success" : "warning", size: "small" }, { default: () => statusLabel(r.status) }),
   },
   {
     title: "操作",
     key: "actions",
-    render: (r) => h(NButton, { text: true, type: "primary", onClick: () => open(r.id) }, { default: () => "详情" }),
+    render: (r) =>
+      h(
+        NButton,
+        { text: true, type: "primary", onClick: () => open(r.id) },
+        { icon: () => h("i", { class: "ri-eye-line dauth-ri" }), default: () => "详情" },
+      ),
   },
 ];
 
@@ -64,19 +78,35 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="d-auth-admin">
+  <div class="d-auth-admin dauth-page wide">
     <n-card title="用户管理">
-      <n-space style="margin-bottom: 16px" align="center">
+      <template #header-extra>
+        <n-button type="primary" @click="create">
+          <template #icon><i class="ri-user-add-line dauth-ri" /></template>
+          创建用户
+        </n-button>
+      </template>
+      <n-space style="margin-bottom: 16px" align="center" wrap>
         <n-input v-model:value="q.q" placeholder="搜索手机 / 邮箱 / 昵称" style="width: 240px" @keyup.enter="load" />
         <n-select v-model:value="q.status" :options="statusOptions" style="width: 140px" />
-        <n-button type="primary" :loading="loading" @click="load">查询</n-button>
+        <n-button type="primary" :loading="loading" @click="load">
+          <template #icon><i class="ri-search-line dauth-ri" /></template>
+          查询
+        </n-button>
       </n-space>
       <n-data-table
         :columns="columns"
         :data="items"
         :loading="loading"
         :pagination="{ page: q.page, pageSize: q.size, itemCount: total, onChange: (p: number) => { q.page = p; load(); } }"
-      />
+      >
+        <template #empty>
+          <div class="dauth-empty">
+            <i class="ri-inbox-2-line dauth-ri" />
+            暂无数据
+          </div>
+        </template>
+      </n-data-table>
     </n-card>
   </div>
 </template>

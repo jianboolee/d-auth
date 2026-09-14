@@ -13,6 +13,7 @@
     "@donktech/d-auth-sdk": "0.1.0",
     "naive-ui": "^2.41.0",
     "pinia": "^2.3.0",
+    "remixicon": "^4.9.1",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
   },

@@ -27,6 +27,8 @@ make web         # http://localhost:8682 （/v1 代理到 8681）
 
 或热重载一体：`make docker-dev`，浏览器打开 http://localhost:8682。
 
+小程序 web-view / iframe 使用无侧栏地址：`/embed/login`、`/embed/account/profile`。
+
 开发环境短信/邮件不真发，发码接口返回 `debug_code`。用 `13800000000` 首次登录会成为 `superadmin`。
 
 ## 部署（与 d-specs 相同形态）
@@ -90,4 +92,4 @@ const auth = createDAuthServiceClient({
 const user = await auth.internalLookup({ phone: "13800000000" });
 ```
 
-嵌入用户管理页（可选）：[`@donktech/d-auth-admin`](packages/admin/README.md) 的 `createAuthAdminRoutes`。
+嵌入用户管理页（可选）：[`@donktech/d-auth-admin`](packages/admin/README.md) 的 `createAuthAccountRoutes` / `createAuthAdminRoutes`。

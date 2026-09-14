@@ -5,6 +5,8 @@ import { setAdminClient } from "@donktech/d-auth-admin";
 import App from "./App.vue";
 import router from "./router";
 import { dauth } from "./api/client";
+import "./assets/theme.css";
+import "remixicon/fonts/remixicon.css";
 
 setAdminClient(dauth);
 
