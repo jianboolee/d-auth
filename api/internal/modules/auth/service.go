@@ -267,11 +267,22 @@ func (s *Service) Refresh(refreshToken string, sessionID uuid.UUID, meta LoginMe
 	return s.pack(user, roles, access, newRaw), &sess, nil
 }
 
-func (s *Service) Logout(sessionID uuid.UUID) error {
+// RevokeSession 吊销一次登录会话。会话有两条定位路径：session ID（cookie 凭据）
+// 与 refresh token（token 凭据，即使 access token 已过期也能定位）。
+// 两者都没有表示调用方本来就没登录，按幂等处理直接返回 nil；
+// 已吊销的会话重复调用同样返回 nil。
+func (s *Service) RevokeSession(sessionID uuid.UUID, refreshToken string) error {
+	q := s.store.DB.Model(&models.Session{}).Where("revoked_at IS NULL")
+	switch {
+	case refreshToken != "":
+		q = q.Where("refresh_token_hash = ?", store.HashToken(refreshToken))
+	case sessionID != uuid.Nil:
+		q = q.Where("id = ?", sessionID)
+	default:
+		return nil
+	}
 	now := time.Now()
-	return s.store.DB.Model(&models.Session{}).Where("id = ?", sessionID).Updates(map[string]any{
-		"revoked_at": now, "updated_at": now,
-	}).Error
+	return q.Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
 }
 
 func (s *Service) SessionByID(id uuid.UUID) (*models.Session, error) {

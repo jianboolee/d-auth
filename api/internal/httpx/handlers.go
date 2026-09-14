@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -220,14 +221,35 @@ func (h *Handlers) Refresh(c *gin.Context) {
 	response.OK(c, tokens)
 }
 
+type logoutReq struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
 func (h *Handlers) Logout(c *gin.Context) {
-	if ck, err := c.Cookie(h.Cfg.CookieName); err == nil {
-		if id, err := uuid.Parse(ck); err == nil {
-			_ = h.Auth.Logout(id)
+	var req logoutReq
+	_ = c.ShouldBindJSON(&req)
+
+	// 会话定位优先用 actor（OptionalAuth 已解析 Bearer / cookie），
+	// 再回退 cookie，最后用 refresh token——后者让 access token 已过期的
+	// token 客户端（App / 小程序）也能真正吊销会话。
+	var sid uuid.UUID
+	if a, ok := contextx.GetActor(c); ok {
+		sid = a.SessionID
+	}
+	if sid == uuid.Nil {
+		if ck, err := c.Cookie(h.Cfg.CookieName); err == nil {
+			sid, _ = uuid.Parse(ck)
 		}
 	}
-	if a, ok := contextx.GetActor(c); ok && a.SessionID != uuid.Nil {
-		_ = h.Auth.Logout(a.SessionID)
+
+	// 有可定位的会话就必须吊销成功，否则不能谎报「已退出」：会话仍然有效，
+	// 清掉 cookie 只会让用户以为退出了。此时保留 cookie 让用户能重试。
+	if sid != uuid.Nil || req.RefreshToken != "" {
+		if err := h.Auth.RevokeSession(sid, req.RefreshToken); err != nil {
+			slog.Error("logout revoke session", "err", err, "session_id", sid)
+			WriteError(c, err)
+			return
+		}
 	}
 	h.clearCookie(c)
 	response.OK(c, gin.H{"ok": true})

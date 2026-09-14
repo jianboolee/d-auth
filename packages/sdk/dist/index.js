@@ -178,8 +178,15 @@ export class DAuthClient {
         return data;
     }
     async logout() {
+        // 带上 refresh token：token 模式下 access token 可能已过期，服务端要靠它
+        // 定位并吊销会话，否则只是本地清空、服务端会话仍然有效。
+        const refresh = this.mode === "cookie"
+            ? ""
+            : typeof localStorage === "undefined"
+                ? ""
+                : localStorage.getItem(REFRESH_KEY) || "";
         try {
-            await this.request("/v1/auth/logout", { method: "POST" }, false);
+            await this.request("/v1/auth/logout", { method: "POST", body: JSON.stringify({ refresh_token: refresh }) }, false);
         }
         finally {
             this.clearTokens();

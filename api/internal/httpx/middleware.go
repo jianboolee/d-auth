@@ -172,6 +172,27 @@ func Authenticate(cfg *config.Config, authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
+// OptionalAuth 解析登录态但允许匿名通过，用于 /refresh、/logout 这类公开路由。
+// 它们需要知道「是谁在调用」才能吊销对应会话，但未登录时也必须能调用且返回 200
+// （幂等退出）。因此只拦 CSRF：cookie 凭据下的状态变更缺少 X-DAuth-Client 就拒绝，
+// 其余错误一律放行。
+func OptionalAuth(cfg *config.Config, authSvc *auth.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, _, err := resolveActor(c, cfg, authSvc)
+		if err != nil {
+			if code, _, _ := apperr.CodeOf(err); code == "CSRF" {
+				WriteError(c, err)
+				return
+			}
+			// 未登录或凭据失效：不是错误，交给 handler 按匿名处理
+			c.Next()
+			return
+		}
+		contextx.SetActor(c, *actor)
+		c.Next()
+	}
+}
+
 func RequireUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		a, ok := contextx.GetActor(c)

@@ -41,8 +41,10 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			authg.POST("/email/login", h.EmailLogin)
 			authg.POST("/password/forgot", h.ForgotPassword)
 			authg.POST("/password/reset", h.ResetPassword)
-			authg.POST("/refresh", h.Refresh)
-			authg.POST("/logout", h.Logout)
+			// refresh / logout 需要知道调用者是谁才能吊销对应会话，
+			// 但未登录也必须可调用（幂等退出），所以用 OptionalAuth。
+			authg.POST("/refresh", OptionalAuth(cfg, authSvc), h.Refresh)
+			authg.POST("/logout", OptionalAuth(cfg, authSvc), h.Logout)
 			authg.POST("/wechat/qr/start", h.WeChatQRStart)
 			authg.GET("/wechat/qr/status", h.WeChatQRStatus)
 			authg.GET("/wechat/callback", h.WeChatCallback)
