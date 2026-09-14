@@ -19,6 +19,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/admin"
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
+	"github.com/jianboolee/d-auth/internal/modules/legal"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
 	"github.com/jianboolee/d-auth/internal/normalize"
 	"github.com/jianboolee/d-auth/internal/response"
@@ -29,6 +30,8 @@ type Handlers struct {
 	Auth  *auth.Service
 	Users *usersvc.Service
 	Admin *admin.Service
+	// 字段名不用 Legal：会与下面的 public handler 方法 Legal() 冲突。
+	LegalDocs *legal.Service
 }
 
 func (h *Handlers) setSessionCookie(c *gin.Context, sessionID uuid.UUID) {
@@ -338,6 +341,47 @@ func (h *Handlers) Me(c *gin.Context) {
 		return
 	}
 	response.OK(c, u)
+}
+
+// Legal 是公开读接口：用户协议 / 隐私政策的链接与正文。
+// 登录页在未登录状态下也要能打开这两个页面，所以不能要求鉴权。
+func (h *Handlers) Legal(c *gin.Context) {
+	docs, err := h.LegalDocs.All()
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, docs)
+}
+
+func (h *Handlers) AdminLegal(c *gin.Context) {
+	docs, err := h.LegalDocs.All()
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, docs)
+}
+
+type updateLegalReq struct {
+	URL     string `json:"url"`
+	Content string `json:"content"`
+}
+
+func (h *Handlers) AdminUpdateLegal(c *gin.Context) {
+	kind := c.Param("kind")
+	var req updateLegalReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	doc, err := h.LegalDocs.Upsert(kind, req.URL, req.Content)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	// 审计只记 kind，不把协议正文写进日志。
+	h.audit(c, "legal.update", nil, map[string]any{"kind": kind})
+	response.OK(c, doc)
 }
 
 type sessionResp struct {

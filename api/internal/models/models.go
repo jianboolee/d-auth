@@ -230,3 +230,33 @@ type AuditLog struct {
 }
 
 func (AuditLog) TableName() string { return "auth_audit_logs" }
+
+// LegalDoc 是站点级法务文档（用户协议 / 隐私政策），全局一份，由超管在后台维护。
+// URL 与 Content 二选一：URL 非空时前端跳转到该地址，否则渲染 Content（markdown）。
+type LegalDoc struct {
+	Kind      string    `gorm:"primaryKey" json:"kind"`
+	URL       string    `json:"url"`
+	Content   string    `json:"content"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (LegalDoc) TableName() string { return "auth_legal_docs" }
+
+const (
+	// 目前只有这两种，见 migrations/0002_legal_docs.sql 的预置行。
+	LegalKindTerms   = "terms"
+	LegalKindPrivacy = "privacy"
+)
+
+// LegalKinds 是允许的 kind 全集，用于校验入参。
+var LegalKinds = []string{LegalKindTerms, LegalKindPrivacy}
+
+// IsLegalKind 判断 kind 是否为受支持的文档类型。
+func IsLegalKind(kind string) bool {
+	for _, k := range LegalKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}

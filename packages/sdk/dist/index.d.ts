@@ -158,6 +158,14 @@ export declare class DAuthClient {
     adminSetUserEmail(id: string, email: string): Promise<User>;
     adminResetPassword(id: string, password: string): Promise<unknown>;
     adminRoles(): Promise<Role[]>;
+    /** 公开读取用户协议 / 隐私政策（登录页未登录时也会调用）。 */
+    legal(): Promise<LegalDocSet>;
+    adminLegal(): Promise<LegalDocSet>;
+    /** 写入某个 kind 的链接与正文。两者都传空即回到「未设置」。 */
+    adminUpdateLegal(kind: "terms" | "privacy", body: {
+        url?: string;
+        content?: string;
+    }): Promise<LegalDoc>;
     /** 新建自定义角色。code 只能用 2-32 位小写字母、数字、下划线或连字符，且以字母开头。 */
     adminCreateRole(body: {
         code: string;
@@ -243,6 +251,17 @@ export type Role = {
     user_count: number;
     created_at: string;
 };
+/**
+ * 法务文档（用户协议 / 隐私政策），全局一份。
+ * url 非空时前端跳转到该地址；否则渲染 content（markdown）。两者都空即未设置。
+ */
+export type LegalDoc = {
+    kind: "terms" | "privacy";
+    url: string;
+    content: string;
+    updated_at: string;
+};
+export type LegalDocSet = Record<string, LegalDoc>;
 export type ClientApp = {
     id: string;
     client_key: string;

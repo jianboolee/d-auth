@@ -14,10 +14,17 @@
     "directory": "packages/admin"
   },
   "peerDependencies": {
-    "vue": "^3.5.0",
-    "vue-router": "^4.4.0",
+    "@donktech/d-auth-sdk": "0.1.0",
     "naive-ui": "^2.40.0",
-    "@donktech/d-auth-sdk": "0.1.0"
+    "vue": "^3.5.0",
+    "vue-router": "^4.4.0"
   },
-  "files": ["src", "README.md"]
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "dompurify": "^3.4.15",
+    "marked": "^18.0.13"
+  }
 }

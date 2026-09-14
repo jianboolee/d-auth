@@ -19,6 +19,7 @@ import PrivacyPage from "./pages/legal/PrivacyPage.vue";
 import ProfilePage from "./pages/account/ProfilePage.vue";
 import SecurityPage from "./pages/account/SecurityPage.vue";
 import SessionsPage from "./pages/account/SessionsPage.vue";
+import LegalSettingsPage from "./pages/LegalSettingsPage.vue";
 
 export { setAdminClient, useAdminClient, provideAuthSession, useAuthSession, useAuthPaths, useEmbed, useConfirm };
 export type { ConfirmOptions } from "./confirm";
@@ -39,6 +40,7 @@ export {
   ProfilePage,
   SecurityPage,
   SessionsPage,
+  LegalSettingsPage,
 };
 
 export type AdminRouteOptions = {
@@ -65,6 +67,7 @@ export function createAuthAdminRoutes(opts: AdminRouteOptions = {}): RouteRecord
       { path: `${base}/clients`, component: ClientsPage, meta: { title: "应用" } },
       { path: `${base}/api-keys`, component: ApiKeysPage, meta: { title: "接口密钥" } },
       { path: `${base}/audit`, component: AuditPage, meta: { title: "审计" } },
+      { path: `${base}/legal`, component: LegalSettingsPage, meta: { title: "协议配置" } },
     );
   }
   return routes;

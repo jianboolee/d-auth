@@ -19,6 +19,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/admin"
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/codes"
+	"github.com/jianboolee/d-auth/internal/modules/legal"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
 )
@@ -85,7 +86,8 @@ func New(cfg *config.Config) (*gin.Engine, error) {
 	authSvc := auth.New(cfg, st, codeSvc, smsSender, mailSender, jwt, wx, redis)
 	userSvc := usersvc.New(cfg, st, codeSvc, oss, authSvc)
 	adminSvc := admin.New(cfg, st)
-	return httpx.NewRouter(cfg, authSvc, userSvc, adminSvc), nil
+	legalSvc := legal.New(st)
+	return httpx.NewRouter(cfg, authSvc, userSvc, adminSvc, legalSvc), nil
 }
 
 func findMigrations() string {

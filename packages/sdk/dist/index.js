@@ -330,6 +330,20 @@ export class DAuthClient {
     adminRoles() {
         return this.request("/v1/admin/roles");
     }
+    /** 公开读取用户协议 / 隐私政策（登录页未登录时也会调用）。 */
+    legal() {
+        return this.request("/v1/auth/legal");
+    }
+    adminLegal() {
+        return this.request("/v1/admin/legal");
+    }
+    /** 写入某个 kind 的链接与正文。两者都传空即回到「未设置」。 */
+    adminUpdateLegal(kind, body) {
+        return this.request(`/v1/admin/legal/${kind}`, {
+            method: "PUT",
+            body: JSON.stringify({ url: body.url ?? "", content: body.content ?? "" }),
+        });
+    }
     /** 新建自定义角色。code 只能用 2-32 位小写字母、数字、下划线或连字符，且以字母开头。 */
     adminCreateRole(body) {
         return this.request("/v1/admin/roles", { method: "POST", body: JSON.stringify(body) });

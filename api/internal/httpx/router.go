@@ -8,10 +8,11 @@ import (
 	"github.com/jianboolee/d-auth/internal/infra/ossstore"
 	"github.com/jianboolee/d-auth/internal/modules/admin"
 	"github.com/jianboolee/d-auth/internal/modules/auth"
+	"github.com/jianboolee/d-auth/internal/modules/legal"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
 )
 
-func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service, adm *admin.Service) *gin.Engine {
+func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service, adm *admin.Service, legalSvc *legal.Service) *gin.Engine {
 	if cfg.IsDev() {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -26,7 +27,7 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 	}
 	r.Use(Recover(), RequestID(), Logger(), CORS(cfg))
 
-	h := &Handlers{Cfg: cfg, Auth: authSvc, Users: users, Admin: adm}
+	h := &Handlers{Cfg: cfg, Auth: authSvc, Users: users, Admin: adm, LegalDocs: legalSvc}
 
 	r.GET("/health", h.Health)
 	r.GET("/static/*path", StaticUploads(ossstore.DataRoot()))
@@ -39,6 +40,8 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			// 登录探针：公开路由，未登录返回 200 空对象（不能挂 Authenticate，
 			// 否则未登录会 401）。
 			authg.GET("/session", h.Session)
+			// 用户协议 / 隐私政策（公开读）：登录页在未登录时也会链到这两个页面。
+			authg.GET("/legal", h.Legal)
 			authg.POST("/sms/send", h.SendSMS)
 			authg.POST("/sms/login", h.SMSLogin)
 			authg.POST("/email/send-code", h.SendEmail)
@@ -109,6 +112,9 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			adminG.POST("/api-keys", RequireSuperAdmin(), h.AdminCreateAPIKey)
 			adminG.PATCH("/api-keys/:id", RequireSuperAdmin(), h.AdminPatchAPIKey)
 			adminG.DELETE("/api-keys/:id", RequireSuperAdmin(), h.AdminDeleteAPIKey)
+			// 法务文档是站点级全局配置，与 clients 一样限超管
+			adminG.GET("/legal", RequireSuperAdmin(), h.AdminLegal)
+			adminG.PUT("/legal/:kind", RequireSuperAdmin(), h.AdminUpdateLegal)
 			adminG.GET("/audit-logs", RequireScope("users:read"), h.AdminAudit)
 		}
 

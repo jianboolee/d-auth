@@ -42,6 +42,7 @@ const adminMenu = computed<MenuOption[]>(() => {
     { label: "角色", key: `${base}/roles`, icon: ri("ri-user-star-line") },
     { label: "应用 / 小程序", key: `${base}/clients`, icon: ri("ri-apps-2-line") },
     { label: "接口密钥", key: `${base}/api-keys`, icon: ri("ri-key-2-line") },
+    { label: "协议配置", key: `${base}/legal`, icon: ri("ri-file-shield-2-line") },
     { label: "审计", key: `${base}/audit`, icon: ri("ri-file-list-3-line") },
   ];
 });
