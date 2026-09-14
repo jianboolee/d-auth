@@ -78,7 +78,7 @@ func (s *Service) SMSLogin(ctx context.Context, phoneRaw, code string, meta Logi
 	if err := s.codes.Verify(ctx, "login", phone, code); err != nil {
 		return nil, nil, err
 	}
-	user, err := s.findOrCreateByIdentity(models.IdentityPhone, phone, defaultNickname("用户", phone))
+	user, err := s.findOrCreateByIdentity(models.IdentityPhone, phone, normalize.MaskPhoneDisplay(phone))
 	if err != nil {
 		return nil, nil, err
 	}

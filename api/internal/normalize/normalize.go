@@ -48,6 +48,12 @@ func MaskPhone(p string) string {
 	return p[:len(p)-8] + "****" + p[len(p)-4:]
 }
 
+// MaskPhoneDisplay 在脱敏的基础上去掉国际区号，用于面向用户展示（如自动生成的昵称），
+// 使 +8613800138000 显示为 138****8000。
+func MaskPhoneDisplay(p string) string {
+	return MaskPhone(strings.TrimPrefix(p, "+86"))
+}
+
 func MaskEmail(e string) string {
 	parts := strings.Split(e, "@")
 	if len(parts) != 2 {
