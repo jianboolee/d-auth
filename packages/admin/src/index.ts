@@ -13,6 +13,7 @@ import CreateUserPage from "./pages/CreateUserPage.vue";
 import LoginPage from "./pages/auth/LoginPage.vue";
 import RegisterPage from "./pages/auth/RegisterPage.vue";
 import ForgotPage from "./pages/auth/ForgotPage.vue";
+import BindPhonePage from "./pages/auth/BindPhonePage.vue";
 import TermsPage from "./pages/legal/TermsPage.vue";
 import PrivacyPage from "./pages/legal/PrivacyPage.vue";
 import ProfilePage from "./pages/account/ProfilePage.vue";
@@ -32,6 +33,7 @@ export {
   LoginPage,
   RegisterPage,
   ForgotPage,
+  BindPhonePage,
   TermsPage,
   PrivacyPage,
   ProfilePage,
@@ -79,6 +81,22 @@ export function createAuthAccountRoutes(opts: { basePath?: string } = {}): Route
   ];
 }
 
+/**
+ * 绑定手机号页：未绑定手机号的用户会被路由守卫送到这里。
+ * 默认挂在 /account 下（与 useAuthPaths().bindPhone() 一致），独立于账户
+ * Shell（没有侧栏）——未绑定前侧栏里的接口都会被拦。
+ */
+export function createAuthBindPhoneRoutes(opts: { basePath?: string; embed?: boolean } = {}): RouteRecordRaw[] {
+  const base = opts.basePath ?? "/account";
+  return [
+    {
+      path: `${base}/bind-phone`,
+      component: BindPhonePage,
+      meta: { bindPhone: true, embed: opts.embed === true, title: "绑定手机号" },
+    },
+  ];
+}
+
 export function createAuthPublicRoutes(opts: { basePath?: string; embed?: boolean } = {}): RouteRecordRaw[] {
   const base = opts.basePath ?? "";
   const embed = opts.embed === true;
@@ -98,13 +116,20 @@ export function createAuthLegalRoutes(): RouteRecordRaw[] {
   ];
 }
 
+/**
+ * 把 createXxxRoutes 产出的路由挂到某个父级下。redirect 要显式透传，
+ * 否则纯 redirect 路由挂为子路由后会变成空页面。返回类型断言为
+ * RouteRecordRaw[] 是因为 vue-router 的联合类型无法从条件展开中收窄。
+ */
 export function asChildRoutes(routes: RouteRecordRaw[], base: string): RouteRecordRaw[] {
-  return routes.map((r) => ({
-    path: stripBase(String(r.path), base),
-    component: r.component,
-    props: r.props,
-    meta: r.meta,
-    // 透传重定向，否则纯 redirect 路由挂为子路由后会变成空页面
-    ...("redirect" in r ? { redirect: r.redirect } : {}),
-  }));
+  return routes.map(
+    (r) =>
+      ({
+        path: stripBase(String(r.path), base),
+        component: r.component,
+        props: r.props,
+        meta: r.meta,
+        ...("redirect" in r ? { redirect: r.redirect } : {}),
+      }) as RouteRecordRaw,
+  );
 }

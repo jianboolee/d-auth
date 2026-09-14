@@ -10,6 +10,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/contextx"
 	"github.com/jianboolee/d-auth/internal/idgen"
+	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/response"
@@ -73,101 +74,102 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-func Authenticate(cfg *config.Config, authSvc *auth.Service) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		header := strings.TrimSpace(c.GetHeader("Authorization"))
-		if strings.HasPrefix(header, "Bearer ") {
-			raw := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-			if strings.HasPrefix(raw, "dak_live_") {
-				if !loadAPIKey(c, authSvc, raw) {
-					return
-				}
-				c.Next()
-				return
-			}
-			claims, err := authSvc.ParseAccess(raw)
-			if err != nil {
-				response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "登录已失效")
-				return
-			}
-			uid, err := idgen.ParseUserID(claims.Subject)
-			if err != nil {
-				response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "登录已失效")
-				return
-			}
-			sid, _ := uuid.Parse(claims.SessionID)
-			cid, _ := uuid.Parse(claims.ClientID)
-			user, err := authSvc.Store().UserByID(uid)
-			if err != nil || user.Status != "active" {
-				response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "登录已失效")
-				return
-			}
-			roles := claims.Roles
-			if len(roles) == 0 {
-				roles, _ = authSvc.Store().RoleCodes(uid)
-			}
-			contextx.SetActor(c, contextx.Actor{
-				Kind: contextx.ActorUser, UserID: uid, SessionID: sid, ClientID: cid, Roles: roles,
-			})
-			c.Next()
-			return
-		}
+// resolveActor 解析请求的登录态，成功返回 actor 与当前会话（会话在 Bearer
+// 路径下可能拿不到，此时为 nil）。它不写任何响应，失败时返回带码的错误，
+// 由调用方决定如何响应：Authenticate 交给 WriteError 返回原状态码，
+// Session 探针则一律当作未登录返回空对象。
+func resolveActor(c *gin.Context, cfg *config.Config, authSvc *auth.Service) (*contextx.Actor, *models.Session, error) {
+	errUnauthed := apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "登录已失效")
+	errNotLoggedIn := apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "未登录")
 
-		sid, _ := c.Cookie(cfg.CookieName)
-		if sid == "" {
-			response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未登录")
-			return
+	header := strings.TrimSpace(c.GetHeader("Authorization"))
+	if strings.HasPrefix(header, "Bearer ") {
+		raw := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+		if strings.HasPrefix(raw, "dak_live_") {
+			prefix := store.PrefixOfAPIKey(raw)
+			key, err := authSvc.Store().FindAPIKeyByPrefix(prefix)
+			if err != nil || key.KeyHash != store.HashToken(raw) {
+				return nil, nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "无效的 API Key")
+			}
+			if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
+				return nil, nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "API Key 已过期")
+			}
+			now := time.Now()
+			_ = authSvc.Store().DB.Model(key).Update("last_used_at", now).Error
+			return &contextx.Actor{
+				Kind: contextx.ActorAPIKey, APIKeyID: key.ID, Scopes: key.Scopes,
+			}, nil, nil
 		}
-		id, err := uuid.Parse(sid)
+		claims, err := authSvc.ParseAccess(raw)
 		if err != nil {
-			response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未登录")
-			return
+			return nil, nil, errUnauthed
 		}
-		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead && c.Request.Method != http.MethodOptions {
-			if c.GetHeader("X-DAuth-Client") == "" {
-				response.Fail(c, http.StatusForbidden, "CSRF", "缺少 X-DAuth-Client")
-				return
+		uid, err := idgen.ParseUserID(claims.Subject)
+		if err != nil {
+			return nil, nil, errUnauthed
+		}
+		sid, _ := uuid.Parse(claims.SessionID)
+		cid, _ := uuid.Parse(claims.ClientID)
+		user, err := authSvc.Store().UserByID(uid)
+		if err != nil || user.Status != "active" {
+			return nil, nil, errUnauthed
+		}
+		roles := claims.Roles
+		if len(roles) == 0 {
+			roles, _ = authSvc.Store().RoleCodes(uid)
+		}
+		var sess *models.Session
+		if sid != uuid.Nil {
+			if s, err := authSvc.SessionByID(sid); err == nil {
+				sess = s
 			}
 		}
-		sess, err := authSvc.SessionByID(id)
-		if err != nil {
-			response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "登录已失效")
-			return
-		}
-		user, err := authSvc.Store().UserByID(sess.UserID)
-		if err != nil || user.Status != "active" {
-			response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "登录已失效")
-			return
-		}
-		roles, _ := authSvc.Store().RoleCodes(user.ID)
-		cid := uuid.Nil
-		if sess.ClientID != nil {
-			cid = *sess.ClientID
-		}
-		contextx.SetActor(c, contextx.Actor{
-			Kind: contextx.ActorUser, UserID: user.ID, SessionID: sess.ID, ClientID: cid, Roles: roles,
-		})
-		c.Next()
+		return &contextx.Actor{
+			Kind: contextx.ActorUser, UserID: uid, SessionID: sid, ClientID: cid, Roles: roles,
+		}, sess, nil
 	}
+
+	sid, _ := c.Cookie(cfg.CookieName)
+	if sid == "" {
+		return nil, nil, errNotLoggedIn
+	}
+	id, err := uuid.Parse(sid)
+	if err != nil {
+		return nil, nil, errNotLoggedIn
+	}
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead && c.Request.Method != http.MethodOptions {
+		if c.GetHeader("X-DAuth-Client") == "" {
+			return nil, nil, apperr.New(apperr.ErrForbidden, "CSRF", "缺少 X-DAuth-Client")
+		}
+	}
+	sess, err := authSvc.SessionByID(id)
+	if err != nil {
+		return nil, nil, errUnauthed
+	}
+	user, err := authSvc.Store().UserByID(sess.UserID)
+	if err != nil || user.Status != "active" {
+		return nil, nil, errUnauthed
+	}
+	roles, _ := authSvc.Store().RoleCodes(user.ID)
+	cid := uuid.Nil
+	if sess.ClientID != nil {
+		cid = *sess.ClientID
+	}
+	return &contextx.Actor{
+		Kind: contextx.ActorUser, UserID: user.ID, SessionID: sess.ID, ClientID: cid, Roles: roles,
+	}, sess, nil
 }
 
-func loadAPIKey(c *gin.Context, authSvc *auth.Service, raw string) bool {
-	prefix := store.PrefixOfAPIKey(raw)
-	key, err := authSvc.Store().FindAPIKeyByPrefix(prefix)
-	if err != nil || key.KeyHash != store.HashToken(raw) {
-		response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "无效的 API Key")
-		return false
+func Authenticate(cfg *config.Config, authSvc *auth.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, _, err := resolveActor(c, cfg, authSvc)
+		if err != nil {
+			WriteError(c, err)
+			return
+		}
+		contextx.SetActor(c, *actor)
+		c.Next()
 	}
-	if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
-		response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "API Key 已过期")
-		return false
-	}
-	now := time.Now()
-	_ = authSvc.Store().DB.Model(key).Update("last_used_at", now).Error
-	contextx.SetActor(c, contextx.Actor{
-		Kind: contextx.ActorAPIKey, APIKeyID: key.ID, Scopes: key.Scopes,
-	})
-	return true
 }
 
 func RequireUser() gin.HandlerFunc {
@@ -175,6 +177,29 @@ func RequireUser() gin.HandlerFunc {
 		a, ok := contextx.GetActor(c)
 		if !ok || a.Kind != contextx.ActorUser {
 			response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未登录")
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequirePhone 拦住尚未绑定手机号的用户。手机号是主要登录能力，未绑定时
+// 只放行绑定手机号本身（POST /me/phone/change），其余账号接口返回 PHONE_REQUIRED。
+// 这里按需查询（只在这组路由上付出一次查询），而不是给所有已登录请求都加开销。
+func RequirePhone(authSvc *auth.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		a, ok := contextx.GetActor(c)
+		if !ok || a.Kind != contextx.ActorUser {
+			response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未登录")
+			return
+		}
+		hasPhone, err := authSvc.Store().HasIdentity(a.UserID, models.IdentityPhone)
+		if err != nil {
+			WriteError(c, err)
+			return
+		}
+		if !hasPhone {
+			response.Fail(c, http.StatusForbidden, "PHONE_REQUIRED", "请先绑定手机号")
 			return
 		}
 		c.Next()

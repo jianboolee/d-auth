@@ -9,6 +9,9 @@ import (
 	"github.com/jianboolee/d-auth/internal/normalize"
 )
 
+// User 是对外暴露的用户信息。
+// HasPhone 表示是否已绑定手机号：手机号是主要登录能力，前端据此决定是否
+// 把用户引导到绑定手机号页。
 type User struct {
 	// 新用户为 16 位小写字母数字串，历史用户为 uuid v7 字符串。
 	ID          string     `json:"id"`
@@ -19,6 +22,7 @@ type User struct {
 	Status      string     `json:"status"`
 	Roles       []string   `json:"roles"`
 	HasPassword bool       `json:"has_password"`
+	HasPhone    bool       `json:"has_phone"`
 	Phone       string     `json:"phone,omitempty"`
 	Email       string     `json:"email,omitempty"`
 	LastLoginAt *time.Time `json:"last_login_at"`
@@ -52,6 +56,7 @@ func FromUser(u *models.User, roles []string, idents []models.Identity, avatar f
 		switch id.Type {
 		case models.IdentityPhone:
 			out.Phone = id.Identifier
+			out.HasPhone = true
 		case models.IdentityEmail:
 			out.Email = id.Identifier
 		}

@@ -145,21 +145,38 @@ func (s *Service) EmailRegister(ctx context.Context, emailRaw, code, pass, nickn
 	return s.issueSession(&user, meta)
 }
 
+// PasswordLogin 用手机号或邮箱 + 密码登录。密码属于账号本身，因此绑定了手机号的
+// 账号可以用任一已绑定标识登录。仅短信登录创建的账号没有设置密码，会返回凭据错误。
+func (s *Service) PasswordLogin(_ context.Context, identifierRaw, pass string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+	typ, identifier, ok := normalize.Identifier(identifierRaw)
+	if !ok {
+		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_IDENTIFIER", "请输入正确的手机号或邮箱")
+	}
+	return s.passwordLoginByIdentity(typ, identifier, pass, meta)
+}
+
 func (s *Service) EmailLogin(_ context.Context, emailRaw, pass string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
 	email, ok := normalize.Email(emailRaw)
 	if !ok {
 		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
 	}
-	ident, err := s.store.FindIdentity(models.IdentityEmail, email)
+	return s.passwordLoginByIdentity(models.IdentityEmail, email, pass, meta)
+}
+
+// passwordLoginByIdentity 是密码登录的共用实现：按标识找到账号后校验密码。
+// 找不到标识与密码错误返回同一种错误，避免暴露某个手机号/邮箱是否已注册。
+func (s *Service) passwordLoginByIdentity(typ, identifier, pass string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+	invalid := apperr.New(apperr.ErrUnauthorized, "INVALID_CREDENTIALS", "账号或密码不正确")
+	ident, err := s.store.FindIdentity(typ, identifier)
 	if err != nil {
-		return nil, nil, apperr.New(apperr.ErrUnauthorized, "INVALID_CREDENTIALS", "邮箱或密码不正确")
+		return nil, nil, invalid
 	}
 	user, err := s.store.UserByID(ident.UserID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if user.PasswordHash == nil || !password.Verify(pass, *user.PasswordHash) {
-		return nil, nil, apperr.New(apperr.ErrUnauthorized, "INVALID_CREDENTIALS", "邮箱或密码不正确")
+		return nil, nil, invalid
 	}
 	return s.issueSession(user, meta)
 }

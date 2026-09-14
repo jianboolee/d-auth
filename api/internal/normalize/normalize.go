@@ -3,6 +3,8 @@ package normalize
 import (
 	"regexp"
 	"strings"
+
+	"github.com/jianboolee/d-auth/internal/models"
 )
 
 var cnMobile = regexp.MustCompile(`^1[3-9]\d{9}$`)
@@ -39,6 +41,25 @@ func Email(raw string) (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+// Identifier 解析登录标识，判断它是手机号还是邮箱，并返回规范化后的值。
+// 含 @ 的按邮箱处理，其余按手机号处理。返回的 typ 是 models 的身份类型常量。
+func Identifier(raw string) (typ, identifier string, ok bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", "", false
+	}
+	if strings.Contains(s, "@") {
+		if email, ok := Email(s); ok {
+			return models.IdentityEmail, email, true
+		}
+		return "", "", false
+	}
+	if phone, ok := Phone(s); ok {
+		return models.IdentityPhone, phone, true
+	}
+	return "", "", false
 }
 
 func MaskPhone(p string) string {

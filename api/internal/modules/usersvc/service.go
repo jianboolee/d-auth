@@ -60,18 +60,11 @@ func (s *Service) UpdateMe(userID uuid.UUID, p PatchMe) (dto.User, error) {
 	return s.Me(userID)
 }
 
-func (s *Service) ChangePassword(userID uuid.UUID, oldPass, newPass string, sessionID uuid.UUID) error {
+// ChangePassword 直接设置新密码，不再校验原密码（登录态本身即凭据）。
+// 成功后撤销除当前会话外的其它会话，改密码即让其它设备下线。
+func (s *Service) ChangePassword(userID uuid.UUID, newPass string, sessionID uuid.UUID) error {
 	if !password.ValidPlain(newPass) {
 		return apperr.New(apperr.ErrInvalidArgument, "WEAK_PASSWORD", "密码至少 8 位")
-	}
-	user, err := s.store.UserByID(userID)
-	if err != nil {
-		return err
-	}
-	if user.PasswordHash != nil && *user.PasswordHash != "" {
-		if oldPass == "" || !password.Verify(oldPass, *user.PasswordHash) {
-			return apperr.New(apperr.ErrInvalidPassword, "INVALID_PASSWORD", "原密码不正确")
-		}
 	}
 	hash, err := password.Hash(newPass)
 	if err != nil {
@@ -88,29 +81,12 @@ func (s *Service) ChangePassword(userID uuid.UUID, oldPass, newPass string, sess
 		Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
 }
 
-func (s *Service) ChangePhone(ctx context.Context, userID uuid.UUID, oldPhone, oldCode, newPhoneRaw, newCode string) error {
+// ChangePhone 换绑/首次绑定手机号，只校验新手机号的验证码（bind_phone 场景）。
+// 原来没有手机号时就是绑定（add-phone），有手机号时直接替换。
+func (s *Service) ChangePhone(ctx context.Context, userID uuid.UUID, newPhoneRaw, newCode string) error {
 	newPhone, ok := normalize.Phone(newPhoneRaw)
 	if !ok {
 		return apperr.New(apperr.ErrInvalidArgument, "INVALID_PHONE", "手机号不正确")
-	}
-	idents, _ := s.store.IdentitiesOf(userID)
-	var current string
-	for _, id := range idents {
-		if id.Type == models.IdentityPhone {
-			current = id.Identifier
-		}
-	}
-	if current != "" {
-		if oldPhone == "" {
-			oldPhone = current
-		}
-		oldNorm, ok := normalize.Phone(oldPhone)
-		if !ok || oldNorm != current {
-			return apperr.New(apperr.ErrInvalidArgument, "PHONE_MISMATCH", "原手机号不匹配")
-		}
-		if err := s.codes.Verify(ctx, "change_phone", current, oldCode); err != nil {
-			return err
-		}
 	}
 	if err := s.codes.Verify(ctx, "bind_phone", newPhone, newCode); err != nil {
 		return err

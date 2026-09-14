@@ -48,6 +48,26 @@ func TestFromUserUsesInjectedAvatarBuilder(t *testing.T) {
 	if !out.HasPassword {
 		t.Fatal("expected HasPassword true")
 	}
+	if !out.HasPhone {
+		t.Fatal("expected HasPhone true when a phone identity exists")
+	}
+}
+
+// 邮箱注册/微信登录创建的账号没有手机号，HasPhone 必须是 false，
+// 前端据此引导用户去绑定手机号。
+func TestFromUserHasPhoneFalseWithoutPhoneIdentity(t *testing.T) {
+	user := &models.User{ID: uuid.New(), Nickname: "邮箱用户"}
+	idents := []models.Identity{
+		{Type: models.IdentityEmail, Identifier: "a@example.com"},
+		{Type: models.IdentityWechatOpen, Identifier: "openid-1"},
+	}
+	out := dto.FromUser(user, nil, idents, func(string) string { return "" })
+	if out.HasPhone {
+		t.Fatal("expected HasPhone false without a phone identity")
+	}
+	if out.Phone != "" {
+		t.Fatalf("expected empty phone, got %q", out.Phone)
+	}
 }
 
 func TestFromUserEmptyAvatarKeyWithRealConfig(t *testing.T) {

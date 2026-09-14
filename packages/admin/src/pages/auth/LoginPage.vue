@@ -17,7 +17,7 @@ const paths = useAuthPaths();
 const mode = ref<LoginMode>("sms");
 const phone = ref("");
 const smsCode = ref("");
-const email = ref("");
+const identifier = ref("");
 const password = ref("");
 const sending = ref(false);
 const loading = ref(false);
@@ -112,15 +112,15 @@ async function loginSms() {
   }
 }
 
-async function loginEmail() {
+async function loginPassword() {
   clearTip();
-  if (!email.value.trim() || !password.value) {
-    setTip("请输入邮箱和密码", "error");
+  if (!identifier.value.trim() || !password.value) {
+    setTip("请输入手机号/邮箱和密码", "error");
     return;
   }
   loading.value = true;
   try {
-    const res = await client.emailLogin(email.value.trim(), password.value);
+    const res = await client.passwordLogin(identifier.value.trim(), password.value);
     session.setUser(res.user);
     router.push(paths.profile());
   } catch (e: unknown) {
@@ -181,7 +181,13 @@ function switchMode(next: LoginMode) {
 
         <n-form v-show="mode === 'password'" :show-label="false" :show-feedback="false" class="form">
           <n-form-item>
-            <n-input v-model:value="email" size="large" round placeholder="请输入邮箱" />
+            <n-input
+              v-model:value="identifier"
+              size="large"
+              round
+              placeholder="请输入手机号或邮箱"
+              @keyup.enter="loginPassword"
+            />
           </n-form-item>
           <n-form-item>
             <n-input
@@ -191,6 +197,7 @@ function switchMode(next: LoginMode) {
               type="password"
               show-password-on="click"
               placeholder="请输入密码"
+              @keyup.enter="loginPassword"
             />
           </n-form-item>
         </n-form>
@@ -229,7 +236,7 @@ function switchMode(next: LoginMode) {
           round
           block
           :loading="loading"
-          @click="loginEmail"
+          @click="loginPassword"
         >
           登录
         </n-button>

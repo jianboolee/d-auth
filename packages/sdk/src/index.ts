@@ -27,6 +27,8 @@ export type User = {
   status: string;
   roles: string[];
   has_password: boolean;
+  /** 是否已绑定手机号。手机号是主要登录能力，未绑定时前端应引导绑定。 */
+  has_phone: boolean;
   phone?: string;
   email?: string;
   last_login_at?: string | null;
@@ -194,6 +196,17 @@ export class DAuthClient {
     return data;
   }
 
+  /** 密码登录：identifier 可传手机号或邮箱。 */
+  async passwordLogin(identifier: string, password: string) {
+    const data = await this.request<TokenResult>("/v1/auth/password/login", {
+      method: "POST",
+      body: JSON.stringify({ identifier, password }),
+    });
+    this.persistTokens(data);
+    return data;
+  }
+
+  /** 仅邮箱的旧方法，保留兼容；新代码请用 passwordLogin。 */
   async emailLogin(email: string, password: string) {
     const data = await this.request<TokenResult>("/v1/auth/email/login", {
       method: "POST",
@@ -271,18 +284,27 @@ export class DAuthClient {
     return this.request<User>("/v1/me");
   }
 
+  /**
+   * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户与当前会话。
+   * 不会返回 token，也不会因未登录报错，适合替代 `me()` 做启动时的登录态判断。
+   */
+  session() {
+    return this.request<{ user?: User; session?: Session }>("/v1/auth/session");
+  }
+
   patchMe(body: { nickname?: string; bio?: string; gender?: number }) {
     return this.request<User>("/v1/me", { method: "PATCH", body: JSON.stringify(body) });
   }
 
-  changePassword(old_password: string, new_password: string) {
+  changePassword(new_password: string) {
     return this.request("/v1/me/password", {
       method: "POST",
-      body: JSON.stringify({ old_password, new_password }),
+      body: JSON.stringify({ new_password }),
     });
   }
 
-  changePhone(body: { old_phone?: string; old_code?: string; new_phone: string; new_code: string }) {
+  /** 绑定或更换手机号。只需新手机号的验证码（scene 用 bind_phone）。 */
+  changePhone(body: { new_phone: string; new_code: string }) {
     return this.request("/v1/me/phone/change", { method: "POST", body: JSON.stringify(body) });
   }
 

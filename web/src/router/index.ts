@@ -1,8 +1,10 @@
 import { createRouter, createWebHistory } from "vue-router";
+import type { RouteRecordRaw } from "vue-router";
 import {
   asChildRoutes,
   createAuthAccountRoutes,
   createAuthAdminRoutes,
+  createAuthBindPhoneRoutes,
   createAuthLegalRoutes,
   createAuthPublicRoutes,
 } from "@donktech/d-auth-admin";
@@ -12,9 +14,11 @@ const Shell = () => import("../layouts/ShellLayout.vue");
 
 const router = createRouter({
   history: createWebHistory(),
-  routes: [
+  routes: <RouteRecordRaw[]>[
     ...createAuthPublicRoutes(),
     ...createAuthLegalRoutes(),
+    // 绑定手机号：无侧栏的独立页，未绑定手机号的用户会被守卫送到这里
+    ...createAuthBindPhoneRoutes(),
     {
       path: "/account",
       component: Shell,
@@ -33,6 +37,11 @@ const router = createRouter({
       ],
     },
     ...createAuthPublicRoutes({ basePath: "/embed", embed: true }).map((r) => ({
+      ...r,
+      component: Shell,
+      children: [{ path: "", component: r.component, meta: r.meta }],
+    })),
+    ...createAuthBindPhoneRoutes({ basePath: "/embed/account", embed: true }).map((r) => ({
       ...r,
       component: Shell,
       children: [{ path: "", component: r.component, meta: r.meta }],
@@ -68,15 +77,26 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
   if (!auth.loaded) await auth.bootstrap();
+  const embed = to.path.startsWith("/embed");
+  const accountHome = embed ? "/embed/account/profile" : "/account/profile";
+  const bindPhonePath = embed ? "/embed/account/bind-phone" : "/account/bind-phone";
+
   if (to.meta.legal) return true;
+
+  // 已登录用户访问登录/注册页：有手机号回账户首页，没有则去绑定手机号。
   if (to.meta.public) {
-    if (auth.user) return to.path.startsWith("/embed") ? "/embed/account/profile" : "/account/profile";
-    return true;
+    if (!auth.user) return true;
+    return auth.user.has_phone ? accountHome : bindPhonePath;
   }
-  if (!auth.user) return to.path.startsWith("/embed") ? "/embed/login" : "/login";
-  if (to.meta.admin && !auth.isAdmin) {
-    return to.path.startsWith("/embed") ? "/embed/account/profile" : "/account/profile";
+
+  if (!auth.user) return embed ? "/embed/login" : "/login";
+
+  // 手机号是主要登录能力：未绑定的用户只能停留在绑定手机号页。
+  if (!auth.user.has_phone) {
+    return to.meta.bindPhone ? true : bindPhonePath;
   }
+  if (to.meta.bindPhone) return accountHome;
+  if (to.meta.admin && !auth.isAdmin) return accountHome;
   return true;
 });
 

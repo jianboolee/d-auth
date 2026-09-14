@@ -31,6 +31,9 @@ export function useAuthPaths() {
   function profile() {
     return embed() ? "/embed/account/profile" : "/account/profile";
   }
+  function bindPhone() {
+    return embed() ? "/embed/account/bind-phone" : "/account/bind-phone";
+  }
   function adminUsers() {
     return embed() ? "/embed/admin/users" : "/admin/users";
   }
@@ -41,5 +44,5 @@ export function useAuthPaths() {
     return embed() ? "/embed/admin" : "/admin";
   }
 
-  return { embed, login, register, forgot, terms, privacy, profile, adminUsers, accountBase, adminBase };
+  return { embed, login, register, forgot, terms, privacy, profile, bindPhone, adminUsers, accountBase, adminBase };
 }

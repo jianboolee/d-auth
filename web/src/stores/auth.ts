@@ -14,7 +14,10 @@ export const useAuthStore = defineStore("auth", {
   actions: {
     async bootstrap() {
       try {
-        this.user = await dauth.me();
+        // 探针接口未登录时返回空对象而不是 401，因此这里不会产生多余的
+        // 401 与刷新请求。
+        const res = await dauth.session();
+        this.user = res.user ?? null;
       } catch {
         this.user = null;
       } finally {

@@ -24,6 +24,8 @@ export type User = {
     status: string;
     roles: string[];
     has_password: boolean;
+    /** 是否已绑定手机号。手机号是主要登录能力，未绑定时前端应引导绑定。 */
+    has_phone: boolean;
     phone?: string;
     email?: string;
     last_login_at?: string | null;
@@ -64,6 +66,9 @@ export declare class DAuthClient {
         ok: boolean;
     }>;
     emailRegister(email: string, code: string, password: string, nickname?: string): Promise<TokenResult>;
+    /** 密码登录：identifier 可传手机号或邮箱。 */
+    passwordLogin(identifier: string, password: string): Promise<TokenResult>;
+    /** 仅邮箱的旧方法，保留兼容；新代码请用 passwordLogin。 */
     emailLogin(email: string, password: string): Promise<TokenResult>;
     forgotPassword(email: string): Promise<{
         ok: boolean;
@@ -86,15 +91,22 @@ export declare class DAuthClient {
     }>;
     wechatMini(clientKey: string, code: string): Promise<TokenResult>;
     me(): Promise<User>;
+    /**
+     * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户与当前会话。
+     * 不会返回 token，也不会因未登录报错，适合替代 `me()` 做启动时的登录态判断。
+     */
+    session(): Promise<{
+        user?: User;
+        session?: Session;
+    }>;
     patchMe(body: {
         nickname?: string;
         bio?: string;
         gender?: number;
     }): Promise<User>;
-    changePassword(old_password: string, new_password: string): Promise<unknown>;
+    changePassword(new_password: string): Promise<unknown>;
+    /** 绑定或更换手机号。只需新手机号的验证码（scene 用 bind_phone）。 */
     changePhone(body: {
-        old_phone?: string;
-        old_code?: string;
         new_phone: string;
         new_code: string;
     }): Promise<unknown>;

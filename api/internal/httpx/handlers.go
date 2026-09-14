@@ -130,11 +130,32 @@ func (h *Handlers) EmailRegister(c *gin.Context) {
 	response.OK(c, tokens)
 }
 
+type passwordLoginReq struct {
+	Identifier string `json:"identifier"`
+	Password   string `json:"password"`
+}
+
+// PasswordLogin 支持手机号或邮箱 + 密码登录，identifier 由后端判断类型。
+func (h *Handlers) PasswordLogin(c *gin.Context) {
+	var req passwordLoginReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	tokens, sess, err := h.Auth.PasswordLogin(c, req.Identifier, req.Password, h.meta(c))
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.setSessionCookie(c, sess.ID)
+	response.OK(c, tokens)
+}
+
 type emailLoginReq struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
+// EmailLogin 是仅邮箱的旧接口，保留以兼容已发布的 SDK；新接入请用 PasswordLogin。
 func (h *Handlers) EmailLogin(c *gin.Context) {
 	var req emailLoginReq
 	if !response.BindJSON(c, &req) {
@@ -297,6 +318,34 @@ func (h *Handlers) Me(c *gin.Context) {
 	response.OK(c, u)
 }
 
+type sessionResp struct {
+	User    *dto.User    `json:"user,omitempty"`
+	Session *dto.Session `json:"session,omitempty"`
+}
+
+// Session 是登录探针：未登录返回 200 空对象，已登录返回当前用户与当前会话
+// （设备/IP/过期时间，不含任何 token）。前端用它替代 /me 判断登录态，
+// 未登录时不再产生 401。
+func (h *Handlers) Session(c *gin.Context) {
+	actor, sess, err := resolveActor(c, h.Cfg, h.Auth)
+	if err != nil || actor == nil || actor.Kind != contextx.ActorUser {
+		response.OK(c, sessionResp{})
+		return
+	}
+	u, uerr := h.Users.Me(actor.UserID)
+	if uerr != nil {
+		// 用户已不可用（例如被停用/删除），按未登录处理，避免探针报错。
+		response.OK(c, sessionResp{})
+		return
+	}
+	out := sessionResp{User: &u}
+	if sess != nil {
+		s := dto.FromSession(sess)
+		out.Session = &s
+	}
+	response.OK(c, out)
+}
+
 func (h *Handlers) PatchMe(c *gin.Context) {
 	var req usersvc.PatchMe
 	if !response.BindJSON(c, &req) {
@@ -312,7 +361,6 @@ func (h *Handlers) PatchMe(c *gin.Context) {
 }
 
 type passwordReq struct {
-	OldPassword string `json:"old_password"`
 	NewPassword string `json:"new_password"`
 }
 
@@ -322,7 +370,7 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 		return
 	}
 	a, _ := contextx.GetActor(c)
-	if err := h.Users.ChangePassword(a.UserID, req.OldPassword, req.NewPassword, a.SessionID); err != nil {
+	if err := h.Users.ChangePassword(a.UserID, req.NewPassword, a.SessionID); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -330,8 +378,6 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 }
 
 type changePhoneReq struct {
-	OldPhone string `json:"old_phone"`
-	OldCode  string `json:"old_code"`
 	NewPhone string `json:"new_phone"`
 	NewCode  string `json:"new_code"`
 }
@@ -342,7 +388,7 @@ func (h *Handlers) ChangePhone(c *gin.Context) {
 		return
 	}
 	a, _ := contextx.GetActor(c)
-	if err := h.Users.ChangePhone(c, a.UserID, req.OldPhone, req.OldCode, req.NewPhone, req.NewCode); err != nil {
+	if err := h.Users.ChangePhone(c, a.UserID, req.NewPhone, req.NewCode); err != nil {
 		WriteError(c, err)
 		return
 	}

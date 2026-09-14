@@ -18,8 +18,8 @@ const panel = ref<Panel>("password");
 const show = ref(false);
 const busy = ref(false);
 
-const pw = reactive({ old: "", next: "", confirm: "" });
-const ph = reactive({ oldCode: "", next: "", newCode: "", sendingOld: false, sendingNew: false });
+const pw = reactive({ next: "", confirm: "" });
+const ph = reactive({ next: "", newCode: "", sendingNew: false });
 const em = reactive({ next: "", code: "", sending: false });
 
 // 第三方登录方式（微信），由 /v1/me/identities 提供
@@ -83,7 +83,6 @@ function useCountdown() {
   return { seconds, start, clear };
 }
 
-const { seconds: oldSeconds, start: startOldCd, clear: clearOldCd } = useCountdown();
 const { seconds: newSeconds, start: startNewCd, clear: clearNewCd } = useCountdown();
 const { seconds: emailSeconds, start: startEmailCd, clear: clearEmailCd } = useCountdown();
 
@@ -127,12 +126,11 @@ const panelTitle = computed(() => {
 });
 
 function resetAll() {
-  pw.old = pw.next = pw.confirm = "";
-  ph.oldCode = ph.next = ph.newCode = "";
-  ph.sendingOld = ph.sendingNew = false;
+  pw.next = pw.confirm = "";
+  ph.next = ph.newCode = "";
+  ph.sendingNew = false;
   em.next = em.code = "";
   em.sending = false;
-  clearOldCd();
   clearNewCd();
   clearEmailCd();
   busy.value = false;
@@ -157,20 +155,6 @@ function close() {
 
 function normalizePhoneInput(value: string) {
   return value.replace(/\D/g, "").slice(0, 11);
-}
-
-async function sendOldCode() {
-  if (!boundPhone.value) return;
-  ph.sendingOld = true;
-  try {
-    await client.sendSms(boundPhone.value, "change_phone");
-    message.success("验证码已发送至当前手机号");
-    startOldCd();
-  } catch (e: unknown) {
-    message.error(errMessage(e));
-  } finally {
-    ph.sendingOld = false;
-  }
 }
 
 async function sendNewCode() {
@@ -212,10 +196,6 @@ async function refreshUser() {
 }
 
 function submitPassword() {
-  if (hasPassword.value && !pw.old) {
-    message.error("请输入当前密码");
-    return;
-  }
   if (pw.next.length < 8 || pw.next.length > 72) {
     message.error("密码长度需为 8-72 位");
     return;
@@ -225,13 +205,13 @@ function submitPassword() {
     return;
   }
   confirm({
-    title: "确认修改密码",
+    title: hasPassword.value ? "确认修改密码" : "确认设置密码",
     content: "修改后其它设备将退出登录，需要用新密码重新登录。",
     positiveText: "确认修改",
     onPositiveClick: async () => {
       busy.value = true;
       try {
-        await client.changePassword(pw.old, pw.next);
+        await client.changePassword(pw.next);
         message.success("密码已修改");
         close();
       } catch (e: unknown) {
@@ -245,10 +225,6 @@ function submitPassword() {
 
 function submitPhone() {
   const bound = !!boundPhone.value;
-  if (bound && !ph.oldCode.trim()) {
-    message.error("请输入原手机号验证码");
-    return;
-  }
   if (!phoneValid.value) {
     message.error("请输入正确的 11 位手机号");
     return;
@@ -265,12 +241,7 @@ function submitPhone() {
     onPositiveClick: async () => {
       busy.value = true;
       try {
-        await client.changePhone({
-          old_phone: bound ? boundPhone.value : undefined,
-          old_code: bound ? ph.oldCode.trim() : undefined,
-          new_phone: next,
-          new_code: ph.newCode.trim(),
-        });
+        await client.changePhone({ new_phone: next, new_code: ph.newCode.trim() });
         await refreshUser();
         message.success(bound ? "手机号已更新" : "手机号已绑定");
         close();
@@ -423,9 +394,6 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
       <n-drawer-content :title="panelTitle" closable>
         <div ref="panelRef">
         <n-form v-if="panel === 'password'" label-placement="top">
-          <n-form-item v-if="hasPassword" label="当前密码">
-            <n-input v-model:value="pw.old" type="password" show-password-on="click" placeholder="请输入当前密码" />
-          </n-form-item>
           <n-form-item label="新密码">
             <n-input v-model:value="pw.next" type="password" show-password-on="click" placeholder="8-72 位" />
           </n-form-item>
@@ -444,18 +412,6 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
         <n-form v-else-if="panel === 'phone'" label-placement="top">
           <n-form-item v-if="boundPhone" label="当前手机号">
             <n-input :value="maskPhone(boundPhone)" disabled />
-          </n-form-item>
-          <n-form-item v-if="boundPhone" label="原手机号验证码">
-            <div class="dauth-code-row">
-              <n-input v-model:value="ph.oldCode" maxlength="6" placeholder="请输入验证码" />
-              <n-button
-                :loading="ph.sendingOld"
-                :disabled="ph.sendingOld || oldSeconds > 0"
-                @click="sendOldCode"
-              >
-                {{ cdLabel(oldSeconds) }}
-              </n-button>
-            </div>
           </n-form-item>
           <n-form-item label="新手机号">
             <n-input

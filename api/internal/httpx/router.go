@@ -28,10 +28,16 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 		v1.GET("/.well-known/jwks.json", h.JWKS)
 		authg := v1.Group("/auth")
 		{
+			// 登录探针：公开路由，未登录返回 200 空对象（不能挂 Authenticate，
+			// 否则未登录会 401）。
+			authg.GET("/session", h.Session)
 			authg.POST("/sms/send", h.SendSMS)
 			authg.POST("/sms/login", h.SMSLogin)
 			authg.POST("/email/send-code", h.SendEmail)
 			authg.POST("/email/register", h.EmailRegister)
+			// 密码登录：identifier 可传手机号或邮箱
+			authg.POST("/password/login", h.PasswordLogin)
+			// 仅邮箱的旧接口，保留兼容已发布的 SDK
 			authg.POST("/email/login", h.EmailLogin)
 			authg.POST("/password/forgot", h.ForgotPassword)
 			authg.POST("/password/reset", h.ResetPassword)
@@ -48,18 +54,26 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 		me := v1.Group("")
 		me.Use(Authenticate(cfg, authSvc), RequireUser())
 		{
-			me.GET("/me", h.Me)
-			me.PATCH("/me", h.PatchMe)
-			me.POST("/me/password", h.ChangePassword)
+			// 绑定/更换手机号本身不能要求已有手机号，否则新用户无法完成绑定。
 			me.POST("/me/phone/change", h.ChangePhone)
-			me.POST("/me/email/bind", h.BindEmail)
-			me.GET("/me/identities", h.Identities)
-			me.DELETE("/me/identities/:id", h.DeleteIdentity)
-			me.GET("/me/sessions", h.Sessions)
-			me.DELETE("/me/sessions/:id", h.DeleteSession)
-			me.POST("/me/avatar/sign", h.SignAvatar)
-			me.POST("/me/avatar/confirm", h.ConfirmAvatar)
-			me.PUT("/me/avatar/upload", h.UploadAvatar)
+
+			// 其余账号接口要求已绑定手机号：手机号是主要登录能力，未绑定时
+			// 只放行上面的绑定接口，前端会引导到绑定手机号页。
+			gated := me.Group("")
+			gated.Use(RequirePhone(authSvc))
+			{
+				gated.GET("/me", h.Me)
+				gated.PATCH("/me", h.PatchMe)
+				gated.POST("/me/password", h.ChangePassword)
+				gated.POST("/me/email/bind", h.BindEmail)
+				gated.GET("/me/identities", h.Identities)
+				gated.DELETE("/me/identities/:id", h.DeleteIdentity)
+				gated.GET("/me/sessions", h.Sessions)
+				gated.DELETE("/me/sessions/:id", h.DeleteSession)
+				gated.POST("/me/avatar/sign", h.SignAvatar)
+				gated.POST("/me/avatar/confirm", h.ConfirmAvatar)
+				gated.PUT("/me/avatar/upload", h.UploadAvatar)
+			}
 		}
 
 		adminG := v1.Group("/admin")

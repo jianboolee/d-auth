@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/models"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -135,6 +135,16 @@ func (s *Store) IdentitiesOf(userID uuid.UUID) ([]models.Identity, error) {
 	var list []models.Identity
 	err := s.DB.Where("user_id = ?", userID).Order("created_at").Find(&list).Error
 	return list, err
+}
+
+// HasIdentity 判断用户是否绑定了某类身份，用于「是否已绑手机号」这类轻量检查，
+// 避免为了一个布尔值把整个 identities 列表读出来。
+func (s *Store) HasIdentity(userID uuid.UUID, typ string) (bool, error) {
+	var n int64
+	err := s.DB.Model(&models.Identity{}).
+		Where("user_id = ? AND type = ?", userID, typ).
+		Count(&n).Error
+	return n > 0, err
 }
 
 func HashToken(raw string) string {
