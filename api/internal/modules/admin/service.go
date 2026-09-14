@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/idgen"
@@ -14,7 +15,6 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/dto"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/normalize"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -67,7 +67,7 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 	for i := range users {
 		roles, _ := s.store.RoleCodes(users[i].ID)
 		idents, _ := s.store.IdentitiesOf(users[i].ID)
-		out = append(out, dto.FromUser(&users[i], roles, idents, s.cfg.OSSCDNBase))
+		out = append(out, dto.FromUser(&users[i], roles, idents, s.cfg.AvatarURL))
 	}
 	return out, total, nil
 }
@@ -81,7 +81,7 @@ func (s *Service) GetUser(id uuid.UUID) (dto.User, []models.Identity, []models.S
 	idents, _ := s.store.IdentitiesOf(id)
 	var sess []models.Session
 	_ = s.store.DB.Where("user_id = ?", id).Order("created_at DESC").Limit(50).Find(&sess).Error
-	return dto.FromUser(user, roles, idents, s.cfg.OSSCDNBase), idents, sess, nil
+	return dto.FromUser(user, roles, idents, s.cfg.AvatarURL), idents, sess, nil
 }
 
 type CreateUserInput struct {

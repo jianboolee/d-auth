@@ -1,12 +1,11 @@
 package dto
 
 import (
-	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/normalize"
-	"github.com/google/uuid"
 )
 
 type User struct {
@@ -32,11 +31,13 @@ type TokenResult struct {
 	User         User   `json:"user"`
 }
 
-func FromUser(u *models.User, roles []string, idents []models.Identity, cdnBase string) User {
+// FromUser 组装对外用户信息。avatar 由调用方注入，用于把 avatar_key 转成公开地址
+// （含图片处理后缀），避免各模块重复实现 URL 拼接。
+func FromUser(u *models.User, roles []string, idents []models.Identity, avatar func(string) string) User {
 	out := User{
 		ID:          u.ID,
 		Nickname:    u.Nickname,
-		AvatarURL:   avatarURL(cdnBase, u.AvatarKey),
+		AvatarURL:   avatar(u.AvatarKey),
 		Bio:         u.Bio,
 		Gender:      u.Gender,
 		Status:      u.Status,
@@ -64,14 +65,4 @@ func Masked(u User) User {
 		u.Email = normalize.MaskEmail(u.Email)
 	}
 	return u
-}
-
-func avatarURL(cdn, key string) string {
-	if key == "" {
-		return ""
-	}
-	if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
-		return key
-	}
-	return strings.TrimRight(cdn, "/") + "/" + strings.TrimPrefix(key, "avatars/")
 }

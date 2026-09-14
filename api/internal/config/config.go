@@ -35,22 +35,37 @@ type Config struct {
 
 	InitAdminPhone string
 	InitAdminEmail string
-	MasterKey      string
+	// CodeTTL 是短信/邮件验证码的有效期，同时用于短信模板里的「X 分钟内有效」。
+	CodeTTL time.Duration
+	// MasterKey 用于加密数据库中保存的各应用微信 AppSecret（AES-256-GCM，密钥为 SHA256(MasterKey)）。
+	// 上线后不应更改，否则已加密的 AppSecret 将无法解密。
+	MasterKey string
 
+	// 通用密钥，作为下列各服务未单独配置时的兜底。
 	AliyunAccessKeyID     string
 	AliyunAccessKeySecret string
-	SMSSignName           string
-	SMSTemplateLogin      string
-	SMSTemplateBind       string
-	SMSTemplateReset      string
-	DMAccount             string
-	DMFromAlias           string
-	DMRegion              string
+	// 短信、邮件、OSS 可各自使用不同的 AccessKey；留空则回退到通用密钥。
+	AliyunSMSAccessKeyID     string
+	AliyunSMSAccessKeySecret string
+	AliyunDMAccessKeyID      string
+	AliyunDMAccessKeySecret  string
+	OSSAccessKeyID           string
+	OSSAccessKeySecret       string
+	SMSSignName              string
+	SMSTemplateLogin         string
+	SMSTemplateBind          string
+	SMSTemplateReset         string
+	DMAccount                string
+	DMFromAlias              string
+	DMRegion                 string
 
 	OSSEndpoint string
 	OSSBucket   string
 	OSSCDNBase  string
-	OSSPrefix   string
+	// OSSRootDir 是对象键在 bucket 中的根目录，例如 uploads。
+	OSSRootDir string
+	// OSSAvatarSuffix 是头像 URL 末尾统一追加的图片处理后缀，例如阿里云 360x360 正方形裁剪。
+	OSSAvatarSuffix string
 
 	WeChatWebAppID     string
 	WeChatWebAppSecret string
@@ -80,59 +95,106 @@ func Load() *Config {
 	)
 	redisAddr := firstNonEmpty(env("DAUTH_REDIS_ADDR", ""), env("REDIS_ADDR", ""), "localhost:8684")
 
+	// 通用密钥；短信、邮件、OSS 可用各自的 ACCESS_KEY 覆盖，未配置时回退到这里。
+	aliyunKeyID := env("DAUTH_ALIYUN_ACCESS_KEY_ID", "")
+	aliyunKeySecret := env("DAUTH_ALIYUN_ACCESS_KEY_SECRET", "")
+	smsKeyID := firstNonEmpty(env("DAUTH_ALIYUN_SMS_ACCESS_KEY_ID", ""), aliyunKeyID)
+	smsKeySecret := firstNonEmpty(env("DAUTH_ALIYUN_SMS_ACCESS_KEY_SECRET", ""), aliyunKeySecret)
+	dmKeyID := firstNonEmpty(env("DAUTH_ALIYUN_DM_ACCESS_KEY_ID", ""), aliyunKeyID)
+	dmKeySecret := firstNonEmpty(env("DAUTH_ALIYUN_DM_ACCESS_KEY_SECRET", ""), aliyunKeySecret)
+	ossKeyID := firstNonEmpty(env("DAUTH_OSS_ACCESS_KEY_ID", ""), aliyunKeyID)
+	ossKeySecret := firstNonEmpty(env("DAUTH_OSS_ACCESS_KEY_SECRET", ""), aliyunKeySecret)
+	// DAUTH_OSS_PREFIX 是旧名字，保留兼容；新名字是 DAUTH_OSS_ROOT_DIR。
+	ossRootDir := strings.Trim(
+		firstNonEmpty(env("DAUTH_OSS_ROOT_DIR", ""), env("DAUTH_OSS_PREFIX", ""), "uploads"),
+		"/",
+	)
+	if ossRootDir == "" {
+		ossRootDir = "uploads"
+	}
+	// 头像统一追加的图片处理后缀，默认阿里云 360x360 正方形裁剪。
+	ossAvatarSuffix := strings.TrimSpace(env("DAUTH_OSS_AVATAR_SUFFIX", "?x-oss-process=image/resize,m_fill,w_360,h_360"))
+	if ossAvatarSuffix != "" && !strings.HasPrefix(ossAvatarSuffix, "?") {
+		ossAvatarSuffix = "?" + ossAvatarSuffix
+	}
+
 	return &Config{
-		Env:                   firstNonEmpty(env("DAUTH_ENV", ""), env("APP_ENV", ""), "dev"),
-		HTTPAddr:              httpAddr,
-		PublicURL:             strings.TrimRight(publicURL, "/"),
-		WebOrigin:             webOrigin,
-		PostgresDSN:           dsn,
-		RedisAddr:             redisAddr,
-		RedisPassword:         env("DAUTH_REDIS_PASSWORD", env("REDIS_PASSWORD", "")),
-		RedisDB:               envInt("DAUTH_REDIS_DB", envInt("REDIS_DB", 0)),
-		CookieDomain:          env("DAUTH_COOKIE_DOMAIN", ""),
-		CookieSecure:          envBool("DAUTH_COOKIE_SECURE", false),
-		CookieName:            env("DAUTH_COOKIE_NAME", "dauth_session"),
-		AllowedOrigins:        origins,
-		JWTIssuer:             firstNonEmpty(env("DAUTH_JWT_ISSUER", ""), strings.TrimRight(publicURL, "/")),
-		JWTAlg:                env("DAUTH_JWT_ALG", env("JWT_ALG", "")),
-		JWTSecret:             firstNonEmpty(env("DAUTH_JWT_SECRET", ""), env("JWT_SECRET", "")),
-		JWTPrivateKeyPath:     env("DAUTH_JWT_PRIVATE_KEY_PATH", ""),
-		JWTAccessTTL:          envDuration("DAUTH_JWT_ACCESS_TTL", 15*time.Minute),
-		JWTRefreshTTL:         envDuration("DAUTH_JWT_REFRESH_TTL", 30*24*time.Hour),
-		InitAdminPhone:        env("DAUTH_INIT_ADMIN_PHONE", ""),
-		InitAdminEmail:        strings.ToLower(strings.TrimSpace(env("DAUTH_INIT_ADMIN_EMAIL", ""))),
-		MasterKey:             env("DAUTH_MASTER_KEY", "dev-master-key-change-me-32b!!!!!!!!"),
-		AliyunAccessKeyID:     env("DAUTH_ALIYUN_ACCESS_KEY_ID", ""),
-		AliyunAccessKeySecret: env("DAUTH_ALIYUN_ACCESS_KEY_SECRET", ""),
-		SMSSignName:           env("DAUTH_ALIYUN_SMS_SIGN_NAME", ""),
-		SMSTemplateLogin:      env("DAUTH_ALIYUN_SMS_TEMPLATE_LOGIN", ""),
-		SMSTemplateBind:       env("DAUTH_ALIYUN_SMS_TEMPLATE_BIND", ""),
-		SMSTemplateReset:      env("DAUTH_ALIYUN_SMS_TEMPLATE_RESET", ""),
-		DMAccount:             env("DAUTH_ALIYUN_DM_ACCOUNT", ""),
-		DMFromAlias:           env("DAUTH_ALIYUN_DM_FROM_ALIAS", "d-auth"),
-		DMRegion:              env("DAUTH_ALIYUN_DM_REGION", "cn-hangzhou"),
-		OSSEndpoint:           env("DAUTH_OSS_ENDPOINT", ""),
-		OSSBucket:             env("DAUTH_OSS_BUCKET", ""),
-		OSSCDNBase:            strings.TrimRight(env("DAUTH_OSS_CDN_BASE", "http://localhost:8682/static/avatars"), "/"),
-		OSSPrefix:             strings.Trim(env("DAUTH_OSS_PREFIX", "avatars"), "/"),
-		WeChatWebAppID:        env("DAUTH_WECHAT_WEB_APP_ID", ""),
-		WeChatWebAppSecret:    env("DAUTH_WECHAT_WEB_APP_SECRET", ""),
-		WeChatRedirectURL:     env("DAUTH_WECHAT_REDIRECT_URL", strings.TrimRight(publicURL, "/")+"/v1/auth/wechat/callback"),
+		Env:                      firstNonEmpty(env("DAUTH_ENV", ""), env("APP_ENV", ""), "dev"),
+		HTTPAddr:                 httpAddr,
+		PublicURL:                strings.TrimRight(publicURL, "/"),
+		WebOrigin:                webOrigin,
+		PostgresDSN:              dsn,
+		RedisAddr:                redisAddr,
+		RedisPassword:            env("DAUTH_REDIS_PASSWORD", env("REDIS_PASSWORD", "")),
+		RedisDB:                  envInt("DAUTH_REDIS_DB", envInt("REDIS_DB", 0)),
+		CookieDomain:             env("DAUTH_COOKIE_DOMAIN", ""),
+		CookieSecure:             envBool("DAUTH_COOKIE_SECURE", false),
+		CookieName:               env("DAUTH_COOKIE_NAME", "dauth_session"),
+		AllowedOrigins:           origins,
+		JWTIssuer:                firstNonEmpty(env("DAUTH_JWT_ISSUER", ""), strings.TrimRight(publicURL, "/")),
+		JWTAlg:                   env("DAUTH_JWT_ALG", env("JWT_ALG", "")),
+		JWTSecret:                firstNonEmpty(env("DAUTH_JWT_SECRET", ""), env("JWT_SECRET", "")),
+		JWTPrivateKeyPath:        env("DAUTH_JWT_PRIVATE_KEY_PATH", ""),
+		JWTAccessTTL:             envDuration("DAUTH_JWT_ACCESS_TTL", 15*time.Minute),
+		JWTRefreshTTL:            envDuration("DAUTH_JWT_REFRESH_TTL", 30*24*time.Hour),
+		InitAdminPhone:           env("DAUTH_INIT_ADMIN_PHONE", ""),
+		InitAdminEmail:           strings.ToLower(strings.TrimSpace(env("DAUTH_INIT_ADMIN_EMAIL", ""))),
+		CodeTTL:                  envDuration("DAUTH_CODE_TTL", 5*time.Minute),
+		MasterKey:                env("DAUTH_MASTER_KEY", "dev-master-key-change-me-32b!!!!!!!!"),
+		AliyunAccessKeyID:        aliyunKeyID,
+		AliyunAccessKeySecret:    aliyunKeySecret,
+		AliyunSMSAccessKeyID:     smsKeyID,
+		AliyunSMSAccessKeySecret: smsKeySecret,
+		AliyunDMAccessKeyID:      dmKeyID,
+		AliyunDMAccessKeySecret:  dmKeySecret,
+		OSSAccessKeyID:           ossKeyID,
+		OSSAccessKeySecret:       ossKeySecret,
+		SMSSignName:              env("DAUTH_ALIYUN_SMS_SIGN_NAME", ""),
+		SMSTemplateLogin:         env("DAUTH_ALIYUN_SMS_TEMPLATE_LOGIN", ""),
+		SMSTemplateBind:          env("DAUTH_ALIYUN_SMS_TEMPLATE_BIND", ""),
+		SMSTemplateReset:         env("DAUTH_ALIYUN_SMS_TEMPLATE_RESET", ""),
+		DMAccount:                env("DAUTH_ALIYUN_DM_ACCOUNT", ""),
+		DMFromAlias:              env("DAUTH_ALIYUN_DM_FROM_ALIAS", "d-auth"),
+		DMRegion:                 env("DAUTH_ALIYUN_DM_REGION", "cn-hangzhou"),
+		OSSEndpoint:              env("DAUTH_OSS_ENDPOINT", ""),
+		OSSBucket:                env("DAUTH_OSS_BUCKET", ""),
+		OSSCDNBase:               strings.TrimRight(env("DAUTH_OSS_CDN_BASE", "http://localhost:8682/static"), "/"),
+		OSSRootDir:               ossRootDir,
+		OSSAvatarSuffix:          ossAvatarSuffix,
+		WeChatWebAppID:           env("DAUTH_WECHAT_WEB_APP_ID", ""),
+		WeChatWebAppSecret:       env("DAUTH_WECHAT_WEB_APP_SECRET", ""),
+		WeChatRedirectURL:        env("DAUTH_WECHAT_REDIRECT_URL", strings.TrimRight(publicURL, "/")+"/v1/auth/wechat/callback"),
 	}
 }
 
 func (c *Config) IsDev() bool { return c.Env != "prod" && c.Env != "production" }
 
 func (c *Config) UseMockSMS() bool {
-	return c.AliyunAccessKeyID == "" || c.SMSSignName == ""
+	return c.AliyunSMSAccessKeyID == "" || c.SMSSignName == ""
 }
 
 func (c *Config) UseMockMail() bool {
-	return c.AliyunAccessKeyID == "" || c.DMAccount == ""
+	return c.AliyunDMAccessKeyID == "" || c.DMAccount == ""
 }
 
 func (c *Config) UseMockOSS() bool {
-	return c.OSSEndpoint == "" || c.OSSBucket == ""
+	return c.OSSEndpoint == "" || c.OSSBucket == "" || c.OSSAccessKeyID == ""
+}
+
+// AvatarURL 返回头像的公开访问地址，并按 OSSAvatarSuffix 追加图片处理后缀。
+// objectKey 为空返回空串；已是完整 URL 的键原样返回（不追加后缀，避免影响外部地址）。
+func (c *Config) AvatarURL(objectKey string) string {
+	if objectKey == "" {
+		return ""
+	}
+	if strings.HasPrefix(objectKey, "http://") || strings.HasPrefix(objectKey, "https://") {
+		return objectKey
+	}
+	u := strings.TrimRight(c.OSSCDNBase, "/") + "/" + strings.TrimPrefix(objectKey, "/")
+	if c.OSSAvatarSuffix != "" {
+		u += c.OSSAvatarSuffix
+	}
+	return u
 }
 
 func firstNonEmpty(vals ...string) string {

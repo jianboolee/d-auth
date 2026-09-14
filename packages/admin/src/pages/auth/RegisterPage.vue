@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-import { NCard, NForm, NFormItem, NInput, NButton, useMessage } from "naive-ui";
+import { NForm, NFormItem, NInput, NButton, useMessage } from "naive-ui";
 import { useAdminClient } from "../../client";
 import { useAuthSession } from "../../session";
 import { useAuthPaths } from "../../paths";
 import { errMessage } from "../../labels";
+import AuthShell from "./AuthShell.vue";
 
 const router = useRouter();
 const client = useAdminClient();
@@ -17,13 +18,13 @@ const code = ref("");
 const password = ref("");
 const nickname = ref("");
 const sending = ref(false);
-const isDev = import.meta.env.DEV;
+const loading = ref(false);
 
 async function send() {
   sending.value = true;
   try {
-    const res = await client.sendEmail(email.value, "register");
-    message.success(isDev && res.debug_code ? `开发验证码 ${res.debug_code}` : "验证码已发送");
+    await client.sendEmail(email.value, "register");
+    message.success("验证码已发送");
   } catch (e: unknown) {
     message.error(errMessage(e));
   } finally {
@@ -32,47 +33,68 @@ async function send() {
 }
 
 async function submit() {
+  loading.value = true;
   try {
     const res = await client.emailRegister(email.value, code.value, password.value, nickname.value);
     session.setUser(res.user);
     router.push(paths.profile());
   } catch (e: unknown) {
     message.error(errMessage(e));
+  } finally {
+    loading.value = false;
   }
 }
 </script>
 
 <template>
-  <div class="wrap">
-    <n-card title="邮箱注册" class="card">
-      <n-form>
-        <n-form-item label="昵称"><n-input v-model:value="nickname" placeholder="怎么称呼你" /></n-form-item>
-        <n-form-item label="邮箱"><n-input v-model:value="email" placeholder="请输入邮箱" /></n-form-item>
-        <n-form-item label="验证码">
-          <div class="dauth-code-row">
-            <n-input v-model:value="code" placeholder="请输入验证码" />
-            <n-button :loading="sending" @click="send">
-              <template #icon><i class="ri-send-plane-line dauth-ri" /></template>
-              发送
-            </n-button>
-          </div>
-        </n-form-item>
-        <n-form-item label="密码"><n-input v-model:value="password" type="password" placeholder="至少 8 位" /></n-form-item>
-        <n-button type="primary" block @click="submit">注册</n-button>
-        <n-button text style="margin-top: 12px" @click="router.push(paths.login())">返回登录</n-button>
-      </n-form>
-    </n-card>
-  </div>
+  <AuthShell title="邮箱注册">
+    <n-form :show-label="false" :show-feedback="false" class="form">
+      <n-form-item>
+        <n-input v-model:value="nickname" size="large" round placeholder="昵称：怎么称呼你" />
+      </n-form-item>
+      <n-form-item>
+        <n-input v-model:value="email" size="large" round placeholder="请输入邮箱" />
+      </n-form-item>
+      <n-form-item>
+        <div class="dauth-code-row">
+          <n-input v-model:value="code" size="large" round placeholder="请输入验证码" />
+          <n-button size="large" round :loading="sending" @click="send">
+            发送验证码
+          </n-button>
+        </div>
+      </n-form-item>
+      <n-form-item>
+        <n-input
+          v-model:value="password"
+          size="large"
+          round
+          type="password"
+          show-password-on="click"
+          placeholder="密码：至少 8 位"
+        />
+      </n-form-item>
+    </n-form>
+    <div class="primary-action">
+      <n-button type="primary" size="large" round block :loading="loading" @click="submit">
+        注册
+      </n-button>
+    </div>
+    <div class="alt-row">
+      <n-button text type="primary" @click="router.push(paths.login())">返回登录</n-button>
+    </div>
+  </AuthShell>
 </template>
 
 <style scoped>
-.wrap {
-  min-height: calc(100vh - 32px);
-  display: grid;
-  place-items: center;
-  padding: 16px;
+.form {
+  margin-bottom: 16px;
 }
-.card {
-  width: min(440px, 100%);
+.primary-action {
+  min-height: 48px;
+}
+.alt-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
 }
 </style>

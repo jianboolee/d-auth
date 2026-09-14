@@ -17,7 +17,6 @@ const newPhone = ref("");
 const newCode = ref("");
 const email = ref("");
 const emailCode = ref("");
-const isDev = import.meta.env.DEV;
 
 async function changePass() {
   try {
@@ -30,16 +29,16 @@ async function changePass() {
 
 async function sendOld() {
   try {
-    const res = await client.sendSms(oldPhone.value || user.value?.phone || "", "change_phone");
-    message.success(isDev && res.debug_code ? `验证码 ${res.debug_code}` : "已发送");
+    await client.sendSms(oldPhone.value || user.value?.phone || "", "change_phone");
+    message.success("已发送");
   } catch (e: unknown) {
     message.error(errMessage(e));
   }
 }
 async function sendNew() {
   try {
-    const res = await client.sendSms(newPhone.value, "bind_phone");
-    message.success(isDev && res.debug_code ? `验证码 ${res.debug_code}` : "已发送");
+    await client.sendSms(newPhone.value, "bind_phone");
+    message.success("已发送");
   } catch (e: unknown) {
     message.error(errMessage(e));
   }
@@ -60,8 +59,8 @@ async function changePhone() {
 }
 async function sendEmail() {
   try {
-    const res = await client.sendEmail(email.value, "bind_email");
-    message.success(isDev && res.debug_code ? `验证码 ${res.debug_code}` : "已发送");
+    await client.sendEmail(email.value, "bind_email");
+    message.success("已发送");
   } catch (e: unknown) {
     message.error(errMessage(e));
   }

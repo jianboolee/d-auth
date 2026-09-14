@@ -22,6 +22,12 @@ export function useAuthPaths() {
   function forgot() {
     return embed() ? "/embed/forgot" : "/forgot";
   }
+  function terms() {
+    return "/terms";
+  }
+  function privacy() {
+    return "/privacy";
+  }
   function profile() {
     return embed() ? "/embed/account/profile" : "/account/profile";
   }
@@ -35,5 +41,5 @@ export function useAuthPaths() {
     return embed() ? "/embed/admin" : "/admin";
   }
 
-  return { embed, login, register, forgot, profile, adminUsers, accountBase, adminBase };
+  return { embed, login, register, forgot, terms, privacy, profile, adminUsers, accountBase, adminBase };
 }

@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/idgen"
@@ -24,7 +26,6 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/dto"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/normalize"
-	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -62,6 +63,7 @@ func (s *Service) SendSMS(ctx context.Context, phoneRaw, scene string) (string, 
 	if err != nil {
 		return "", err
 	}
+	s.logDevCode("sms", phone, scene, code)
 	if err := s.sms.Send(ctx, phone, code, scene); err != nil {
 		return "", apperr.New(err, "SMS_FAILED", "短信发送失败")
 	}
@@ -95,6 +97,7 @@ func (s *Service) SendEmail(ctx context.Context, emailRaw, scene string) (string
 	if err != nil {
 		return "", err
 	}
+	s.logDevCode("email", email, scene, code)
 	if err := s.mail.SendCode(ctx, email, code, scene); err != nil {
 		return "", apperr.New(err, "MAIL_FAILED", "邮件发送失败")
 	}
@@ -474,7 +477,7 @@ func (s *Service) pack(user *models.User, roles []string, access, refresh string
 		RefreshToken: refresh,
 		TokenType:    "Bearer",
 		ExpiresIn:    int(s.cfg.JWTAccessTTL.Seconds()),
-		User:         dto.FromUser(user, roles, idents, s.cfg.OSSCDNBase),
+		User:         dto.FromUser(user, roles, idents, s.cfg.AvatarURL),
 	}
 }
 
@@ -485,7 +488,7 @@ func (s *Service) PublicUser(userID uuid.UUID) (dto.User, error) {
 	}
 	roles, _ := s.store.RoleCodes(userID)
 	idents, _ := s.store.IdentitiesOf(userID)
-	return dto.FromUser(user, roles, idents, s.cfg.OSSCDNBase), nil
+	return dto.FromUser(user, roles, idents, s.cfg.AvatarURL), nil
 }
 
 func (s *Service) maybePromoteAdmin(user *models.User, phone, email string) {
@@ -537,6 +540,13 @@ func ClientKeyFrom(header string) string {
 }
 
 func (s *Service) DebugCodeEnabled() bool { return s.cfg.IsDev() }
+
+func (s *Service) logDevCode(channel, target, scene, code string) {
+	if !s.DebugCodeEnabled() {
+		return
+	}
+	slog.Info("dev verification code", "channel", channel, "target", target, "scene", scene, "code", code)
+}
 
 func DebugHashHint(scene, target, code string) string {
 	return fmt.Sprintf("%s/%s", scene, target)

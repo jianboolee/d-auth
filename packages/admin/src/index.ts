@@ -12,6 +12,8 @@ import CreateUserPage from "./pages/CreateUserPage.vue";
 import LoginPage from "./pages/auth/LoginPage.vue";
 import RegisterPage from "./pages/auth/RegisterPage.vue";
 import ForgotPage from "./pages/auth/ForgotPage.vue";
+import TermsPage from "./pages/legal/TermsPage.vue";
+import PrivacyPage from "./pages/legal/PrivacyPage.vue";
 import ProfilePage from "./pages/account/ProfilePage.vue";
 import SecurityPage from "./pages/account/SecurityPage.vue";
 import IdentitiesPage from "./pages/account/IdentitiesPage.vue";
@@ -29,6 +31,8 @@ export {
   LoginPage,
   RegisterPage,
   ForgotPage,
+  TermsPage,
+  PrivacyPage,
   ProfilePage,
   SecurityPage,
   IdentitiesPage,
@@ -82,6 +86,14 @@ export function createAuthPublicRoutes(opts: { basePath?: string; embed?: boolea
     { path: p("/login"), component: LoginPage, meta: { public: true, embed, title: "登录" } },
     { path: p("/register"), component: RegisterPage, meta: { public: true, embed, title: "注册" } },
     { path: p("/forgot"), component: ForgotPage, meta: { public: true, embed, title: "重置密码" } },
+  ];
+}
+
+/** 用户协议 / 隐私政策：无 Shell layout，登录态也可访问 */
+export function createAuthLegalRoutes(): RouteRecordRaw[] {
+  return [
+    { path: "/terms", component: TermsPage, meta: { legal: true, title: "用户协议" } },
+    { path: "/privacy", component: PrivacyPage, meta: { legal: true, title: "隐私政策" } },
   ];
 }
 

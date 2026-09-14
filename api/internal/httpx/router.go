@@ -1,13 +1,12 @@
 package httpx
 
 import (
-	"path/filepath"
-
+	"github.com/gin-gonic/gin"
 	"github.com/jianboolee/d-auth/internal/config"
+	"github.com/jianboolee/d-auth/internal/infra/ossstore"
 	"github.com/jianboolee/d-auth/internal/modules/admin"
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
-	"github.com/gin-gonic/gin"
 )
 
 func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service, adm *admin.Service) *gin.Engine {
@@ -22,7 +21,7 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 	h := &Handlers{Cfg: cfg, Auth: authSvc, Users: users, Admin: adm}
 
 	r.GET("/health", h.Health)
-	r.GET("/static/avatars/:name", StaticAvatars(filepath.Join("data", "avatars")))
+	r.GET("/static/*path", StaticUploads(ossstore.DataRoot(cfg.OSSRootDir)))
 
 	v1 := r.Group("/v1")
 	{

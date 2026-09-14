@@ -34,6 +34,9 @@ export class DAuthClient {
                     else
                         localStorage.removeItem(TOKEN_KEY);
                 });
+        if (this.mode === "cookie") {
+            this.clearTokens();
+        }
     }
     jwksURL() {
         return `${this.baseURL}${DAUTH_JWKS_PATH}`;
@@ -41,6 +44,11 @@ export class DAuthClient {
     persistTokens(res) {
         if (this.apiKey)
             return;
+        // Cookie 模式以 HttpOnly session 为准，避免 localStorage Bearer 抢鉴权并触发无意义 refresh
+        if (this.mode === "cookie") {
+            this.clearTokens();
+            return;
+        }
         this.setAccessToken(res.access_token);
         if (typeof localStorage !== "undefined") {
             localStorage.setItem(REFRESH_KEY, res.refresh_token);
@@ -50,6 +58,11 @@ export class DAuthClient {
         this.setAccessToken(null);
         if (typeof localStorage !== "undefined")
             localStorage.removeItem(REFRESH_KEY);
+    }
+    hasRefreshCredential() {
+        if (typeof localStorage === "undefined")
+            return false;
+        return !!localStorage.getItem(REFRESH_KEY);
     }
     async request(path, init = {}, retry = true) {
         const headers = new Headers(init.headers);
@@ -66,9 +79,12 @@ export class DAuthClient {
             headers,
             credentials: this.mode === "cookie" ? "include" : "omit",
         });
+        // 仅在确有可续期凭据时才 refresh，避免未登录时 me → 401 → refresh 二次空打
+        const canRefresh = !!(token && !this.apiKey) || this.hasRefreshCredential();
         if (res.status === 401 &&
             retry &&
             !this.apiKey &&
+            canRefresh &&
             path !== "/v1/auth/refresh" &&
             path !== "/v1/auth/logout") {
             try {

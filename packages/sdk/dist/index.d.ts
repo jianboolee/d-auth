@@ -54,15 +54,14 @@ export declare class DAuthClient {
     jwksURL(): string;
     persistTokens(res: TokenResult): void;
     clearTokens(): void;
+    private hasRefreshCredential;
     private request;
     sendSms(phone: string, scene?: string): Promise<{
         ok: boolean;
-        debug_code?: string;
     }>;
     smsLogin(phone: string, code: string): Promise<TokenResult>;
     sendEmail(email: string, scene?: string): Promise<{
         ok: boolean;
-        debug_code?: string;
     }>;
     emailRegister(email: string, code: string, password: string, nickname?: string): Promise<TokenResult>;
     emailLogin(email: string, password: string): Promise<TokenResult>;

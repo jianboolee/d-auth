@@ -3,6 +3,7 @@ import {
   asChildRoutes,
   createAuthAccountRoutes,
   createAuthAdminRoutes,
+  createAuthLegalRoutes,
   createAuthPublicRoutes,
 } from "@donktech/d-auth-admin";
 import { useAuthStore } from "../stores/auth";
@@ -13,6 +14,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     ...createAuthPublicRoutes(),
+    ...createAuthLegalRoutes(),
     {
       path: "/account",
       component: Shell,
@@ -66,6 +68,7 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
   if (!auth.loaded) await auth.bootstrap();
+  if (to.meta.legal) return true;
   if (to.meta.public) {
     if (auth.user) return to.path.startsWith("/embed") ? "/embed/account/profile" : "/account/profile";
     return true;

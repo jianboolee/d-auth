@@ -60,10 +60,16 @@ body,
 
 .dauth-code-row {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   width: 100%;
 }
 
 .dauth-code-row .n-input {
   flex: 1;
+  min-width: 0;
+}
+
+.dauth-code-row .n-button {
+  flex-shrink: 0;
 }

@@ -80,6 +80,9 @@ export class DAuthClient {
         if (token) localStorage.setItem(TOKEN_KEY, token);
         else localStorage.removeItem(TOKEN_KEY);
       });
+    if (this.mode === "cookie") {
+      this.clearTokens();
+    }
   }
 
   jwksURL() {
@@ -88,6 +91,11 @@ export class DAuthClient {
 
   persistTokens(res: TokenResult) {
     if (this.apiKey) return;
+    // Cookie 模式以 HttpOnly session 为准，避免 localStorage Bearer 抢鉴权并触发无意义 refresh
+    if (this.mode === "cookie") {
+      this.clearTokens();
+      return;
+    }
     this.setAccessToken(res.access_token);
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(REFRESH_KEY, res.refresh_token);
@@ -97,6 +105,11 @@ export class DAuthClient {
   clearTokens() {
     this.setAccessToken(null);
     if (typeof localStorage !== "undefined") localStorage.removeItem(REFRESH_KEY);
+  }
+
+  private hasRefreshCredential(): boolean {
+    if (typeof localStorage === "undefined") return false;
+    return !!localStorage.getItem(REFRESH_KEY);
   }
 
   private async request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
@@ -114,10 +127,13 @@ export class DAuthClient {
       headers,
       credentials: this.mode === "cookie" ? "include" : "omit",
     });
+    // 仅在确有可续期凭据时才 refresh，避免未登录时 me → 401 → refresh 二次空打
+    const canRefresh = !!(token && !this.apiKey) || this.hasRefreshCredential();
     if (
       res.status === 401 &&
       retry &&
       !this.apiKey &&
+      canRefresh &&
       path !== "/v1/auth/refresh" &&
       path !== "/v1/auth/logout"
     ) {
@@ -147,7 +163,7 @@ export class DAuthClient {
   }
 
   sendSms(phone: string, scene = "login") {
-    return this.request<{ ok: boolean; debug_code?: string }>("/v1/auth/sms/send", {
+    return this.request<{ ok: boolean }>("/v1/auth/sms/send", {
       method: "POST",
       body: JSON.stringify({ phone, scene }),
     });
@@ -163,7 +179,7 @@ export class DAuthClient {
   }
 
   sendEmail(email: string, scene = "register") {
-    return this.request<{ ok: boolean; debug_code?: string }>("/v1/auth/email/send-code", {
+    return this.request<{ ok: boolean }>("/v1/auth/email/send-code", {
       method: "POST",
       body: JSON.stringify({ email, scene }),
     });

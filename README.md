@@ -29,7 +29,7 @@ make web         # http://localhost:8682 （/v1 代理到 8681）
 
 小程序 web-view / iframe 使用无侧栏地址：`/embed/login`、`/embed/account/profile`。
 
-开发环境短信/邮件不真发，发码接口返回 `debug_code`。用 `13800000000` 首次登录会成为 `superadmin`。
+开发环境短信/邮件不真发，验证码会打印到 API 服务终端（不会出现在 HTTP 响应里）。用 `13800000000` 首次登录会成为 `superadmin`。
 
 ## 部署（与 d-specs 相同形态）
 

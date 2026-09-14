@@ -17,6 +17,6 @@ type Mock struct {
 func (m *Mock) SendCode(_ context.Context, email, code, scene string) error {
 	m.LastEmail = email
 	m.LastCode = code
-	slog.Info("mock mail", "email", email, "code", code, "scene", scene)
+	slog.Info("mock mail", "email", email, "scene", scene)
 	return nil
 }

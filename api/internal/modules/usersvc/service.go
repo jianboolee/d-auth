@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/infra/ossstore"
@@ -16,7 +17,6 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/dto"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/normalize"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -208,19 +208,20 @@ func (s *Service) SignAvatar(userID uuid.UUID, contentType string) (map[string]a
 		return nil, err
 	}
 	return map[string]any{
-		"object_key":  key,
-		"upload_url":  upload,
-		"public_url":  pub,
-		"headers":     headers,
+		"object_key": key,
+		"upload_url": upload,
+		"public_url": pub,
+		"headers":    headers,
 	}, nil
 }
 
 func (s *Service) ConfirmAvatar(userID uuid.UUID, objectKey string) (dto.User, error) {
-	if objectKey == "" || !strings.Contains(objectKey, userID.String()) {
+	key := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
+	if key == "" || !strings.HasPrefix(key, s.cfg.OSSRootDir+"/") || !strings.Contains(key, "/"+userID.String()+"/") {
 		return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_KEY", "无效的头像 key")
 	}
 	if err := s.store.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{
-		"avatar_key": objectKey, "updated_at": time.Now(),
+		"avatar_key": key, "updated_at": time.Now(),
 	}).Error; err != nil {
 		return dto.User{}, err
 	}

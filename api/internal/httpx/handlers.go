@@ -3,9 +3,14 @@ package httpx
 import (
 	"io"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/contextx"
 	"github.com/jianboolee/d-auth/internal/models"
@@ -15,8 +20,6 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
 	"github.com/jianboolee/d-auth/internal/normalize"
 	"github.com/jianboolee/d-auth/internal/response"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type Handlers struct {
@@ -62,16 +65,11 @@ func (h *Handlers) SendSMS(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	code, err := h.Auth.SendSMS(c, req.Phone, req.Scene)
-	if err != nil {
+	if _, err := h.Auth.SendSMS(c, req.Phone, req.Scene); err != nil {
 		WriteError(c, err)
 		return
 	}
-	out := gin.H{"ok": true}
-	if h.Auth.DebugCodeEnabled() {
-		out["debug_code"] = code
-	}
-	response.OK(c, out)
+	response.OK(c, gin.H{"ok": true})
 }
 
 type smsLoginReq struct {
@@ -103,16 +101,11 @@ func (h *Handlers) SendEmail(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	code, err := h.Auth.SendEmail(c, req.Email, req.Scene)
-	if err != nil {
+	if _, err := h.Auth.SendEmail(c, req.Email, req.Scene); err != nil {
 		WriteError(c, err)
 		return
 	}
-	out := gin.H{"ok": true}
-	if h.Auth.DebugCodeEnabled() {
-		out["debug_code"] = code
-	}
-	response.OK(c, out)
+	response.OK(c, gin.H{"ok": true})
 }
 
 type emailRegisterReq struct {
@@ -746,13 +739,20 @@ func (h *Handlers) audit(c *gin.Context, action string, target *uuid.UUID, meta 
 	h.Auth.Store().WriteAudit(actor, key, target, action, c.ClientIP(), c.Request.UserAgent(), models.JSONMap(meta))
 }
 
-func StaticAvatars(root string) gin.HandlerFunc {
+// StaticUploads 服务 mock 模式下本地保存的上传文件，路径形如 /static/<root>/<userID>/<name>。
+func StaticUploads(root string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		name := c.Param("name")
-		if name == "" || strings.Contains(name, "..") {
+		rel := strings.TrimPrefix(c.Param("path"), "/")
+		clean := path.Clean(rel)
+		if clean == "." || clean == "" || strings.HasPrefix(clean, "../") || strings.Contains(clean, "..") {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		c.File(root + "/" + name)
+		full := filepath.Join(root, filepath.FromSlash(clean))
+		if _, err := os.Stat(full); err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.File(full)
 	}
 }

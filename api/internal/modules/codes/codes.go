@@ -15,9 +15,15 @@ import (
 
 type Service struct {
 	rdb *redis.Client
+	ttl time.Duration
 }
 
-func New(rdb *redis.Client) *Service { return &Service{rdb: rdb} }
+func New(rdb *redis.Client, ttl time.Duration) *Service {
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	return &Service{rdb: rdb, ttl: ttl}
+}
 
 func (s *Service) Issue(ctx context.Context, scene, target string) (string, error) {
 	if err := s.checkRate(ctx, scene, target); err != nil {
@@ -28,7 +34,7 @@ func (s *Service) Issue(ctx context.Context, scene, target string) (string, erro
 	key := fmt.Sprintf("code:%s:%s", scene, target)
 	pipe := s.rdb.TxPipeline()
 	pipe.HSet(ctx, key, map[string]any{"hash": sum, "attempts": 0})
-	pipe.Expire(ctx, key, 5*time.Minute)
+	pipe.Expire(ctx, key, s.ttl)
 	pipe.Set(ctx, fmt.Sprintf("rate:send:%s:%s", scene, target), "1", 60*time.Second)
 	pipe.Incr(ctx, fmt.Sprintf("rate:hour:%s:%s", scene, target))
 	pipe.Expire(ctx, fmt.Sprintf("rate:hour:%s:%s", scene, target), time.Hour)

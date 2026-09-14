@@ -75,7 +75,7 @@ func New(cfg *config.Config) (*gin.Engine, error) {
 	}
 
 	st := store.New(db)
-	codeSvc := codes.New(redis)
+	codeSvc := codes.New(redis, cfg.CodeTTL)
 	authSvc := auth.New(cfg, st, codeSvc, smsSender, mailSender, jwt, wx, redis)
 	userSvc := usersvc.New(cfg, st, codeSvc, oss, authSvc)
 	adminSvc := admin.New(cfg, st)

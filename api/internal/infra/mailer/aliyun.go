@@ -27,7 +27,11 @@ func (a *Aliyun) SendCode(ctx context.Context, email, code, scene string) error 
 	case "bind_email":
 		subject = "绑定邮箱验证码"
 	}
-	htmlBody := fmt.Sprintf(`<p>您的验证码是 <b>%s</b>，5 分钟内有效。如非本人操作请忽略。</p>`, html.EscapeString(code))
+	minutes := int(a.cfg.CodeTTL.Minutes())
+	if minutes <= 0 {
+		minutes = 5
+	}
+	htmlBody := fmt.Sprintf(`<p>您的验证码是 <b>%s</b>，%d 分钟内有效。如非本人操作请忽略。</p>`, html.EscapeString(code), minutes)
 	params := map[string]string{
 		"AccountName":    a.cfg.DMAccount,
 		"FromAlias":      a.cfg.DMFromAlias,
@@ -41,5 +45,5 @@ func (a *Aliyun) SendCode(ctx context.Context, email, code, scene string) error 
 	if a.cfg.DMRegion != "" && a.cfg.DMRegion != "cn-hangzhou" {
 		host = fmt.Sprintf("dm.%s.aliyuncs.com", a.cfg.DMRegion)
 	}
-	return aliyunrpc.Call(ctx, host, "SingleSendMail", "2015-11-23", a.cfg.AliyunAccessKeyID, a.cfg.AliyunAccessKeySecret, params)
+	return aliyunrpc.Call(ctx, host, "SingleSendMail", "2015-11-23", a.cfg.AliyunDMAccessKeyID, a.cfg.AliyunDMAccessKeySecret, params)
 }
