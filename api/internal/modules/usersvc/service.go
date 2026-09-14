@@ -96,15 +96,13 @@ func (s *Service) ChangePhone(ctx context.Context, userID uuid.UUID, newPhoneRaw
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	now := time.Now()
-	return s.store.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ? AND type = ?", userID, models.IdentityPhone).Delete(&models.Identity{}).Error; err != nil {
-			return err
-		}
-		return s.store.AddIdentity(tx, &models.Identity{
-			UserID: userID, Type: models.IdentityPhone, Identifier: newPhone, VerifiedAt: &now,
-		})
+	err := s.store.DB.Transaction(func(tx *gorm.DB) error {
+		return s.store.ReplaceIdentity(tx, userID, models.IdentityPhone, newPhone)
 	})
+	if store.IsUniqueViolation(err) {
+		return apperr.New(apperr.ErrPhoneTaken, "PHONE_TAKEN", "手机号已被使用")
+	}
+	return err
 }
 
 func (s *Service) BindEmail(ctx context.Context, userID uuid.UUID, emailRaw, code string) error {
@@ -120,15 +118,13 @@ func (s *Service) BindEmail(ctx context.Context, userID uuid.UUID, emailRaw, cod
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	now := time.Now()
-	return s.store.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ? AND type = ?", userID, models.IdentityEmail).Delete(&models.Identity{}).Error; err != nil {
-			return err
-		}
-		return s.store.AddIdentity(tx, &models.Identity{
-			UserID: userID, Type: models.IdentityEmail, Identifier: email, VerifiedAt: &now,
-		})
+	err := s.store.DB.Transaction(func(tx *gorm.DB) error {
+		return s.store.ReplaceIdentity(tx, userID, models.IdentityEmail, email)
 	})
+	if store.IsUniqueViolation(err) {
+		return apperr.New(apperr.ErrEmailTaken, "EMAIL_TAKEN", "邮箱已被使用")
+	}
+	return err
 }
 
 func (s *Service) Identities(userID uuid.UUID) ([]models.Identity, error) {

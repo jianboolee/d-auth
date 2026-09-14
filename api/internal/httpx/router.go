@@ -83,6 +83,9 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			adminG.GET("/users/:id", RequireScope("users:read"), h.AdminUser)
 			adminG.POST("/users", RequireScope("users:write"), h.AdminCreateUser)
 			adminG.PATCH("/users/:id", RequireScope("users:write"), h.AdminPatchUser)
+			// 直接改绑手机号 / 邮箱（管理员操作，不校验验证码）；两者均唯一
+			adminG.PATCH("/users/:id/phone", RequireScope("users:write"), h.AdminSetPhone)
+			adminG.PATCH("/users/:id/email", RequireScope("users:write"), h.AdminSetEmail)
 			adminG.POST("/users/:id/password", RequireScope("users:write"), h.AdminResetPassword)
 			adminG.GET("/roles", RequireScope("users:read"), h.AdminRoles)
 			adminG.GET("/clients", RequireScope("users:write"), h.AdminClients)

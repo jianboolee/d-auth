@@ -390,6 +390,22 @@ export class DAuthClient {
     return this.request<User>(`/v1/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
   }
 
+  /** 直接改绑用户手机号（管理员操作，不校验验证码）。手机号唯一，冲突返回 PHONE_TAKEN。 */
+  adminSetUserPhone(id: string, phone: string) {
+    return this.request<User>(`/v1/admin/users/${id}/phone`, {
+      method: "PATCH",
+      body: JSON.stringify({ phone }),
+    });
+  }
+
+  /** 直接改绑用户邮箱（管理员操作，不校验验证码）。邮箱唯一，冲突返回 EMAIL_TAKEN。 */
+  adminSetUserEmail(id: string, email: string) {
+    return this.request<User>(`/v1/admin/users/${id}/email`, {
+      method: "PATCH",
+      body: JSON.stringify({ email }),
+    });
+  }
+
   adminResetPassword(id: string, password: string) {
     return this.request(`/v1/admin/users/${id}/password`, {
       method: "POST",

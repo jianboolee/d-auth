@@ -176,6 +176,66 @@ func (s *Service) PatchUser(id uuid.UUID, nickname *string, status *string, role
 	return u, err
 }
 
+// SetUserIdentity 直接设置用户的手机号或邮箱，供后台管理使用（不校验验证码，
+// 与用户自助改绑需要收验证码不同：管理员操作以管理员身份为凭据）。
+// 只做设置/替换，不支持解绑——手机号是主要登录能力，解绑会让账号失去登录方式。
+// 唯一性由 (type, identifier) 唯一索引保证，这里先查一次给出友好错误，再靠索引兜底并发。
+func (s *Service) SetUserIdentity(id uuid.UUID, typ, raw string) (dto.User, error) {
+	if _, err := s.store.UserByID(id); err != nil {
+		return dto.User{}, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
+	}
+	if strings.TrimSpace(raw) == "" {
+		code, msg := "INVALID_PHONE", "手机号不能为空"
+		if typ == models.IdentityEmail {
+			code, msg = "INVALID_EMAIL", "邮箱不能为空"
+		}
+		return dto.User{}, apperr.New(apperr.ErrInvalidArgument, code, msg)
+	}
+
+	var (
+		identifier string
+		ok         bool
+		takenErr   error
+	)
+	switch typ {
+	case models.IdentityPhone:
+		identifier, ok = normalize.Phone(raw)
+		if !ok {
+			return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_PHONE", "手机号不正确")
+		}
+		takenErr = apperr.New(apperr.ErrPhoneTaken, "PHONE_TAKEN", "手机号已被使用")
+	case models.IdentityEmail:
+		identifier, ok = normalize.Email(raw)
+		if !ok {
+			return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
+		}
+		takenErr = apperr.New(apperr.ErrEmailTaken, "EMAIL_TAKEN", "邮箱已被使用")
+	default:
+		return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_TYPE", "不支持的身份类型")
+	}
+
+	// 已属于别人 → 拒绝；已属于本人 → 视为无变化（幂等）。
+	if existing, err := s.store.FindIdentity(typ, identifier); err == nil {
+		if existing.UserID != id {
+			return dto.User{}, takenErr
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return dto.User{}, err
+	}
+
+	err := s.store.DB.Transaction(func(tx *gorm.DB) error {
+		return s.store.ReplaceIdentity(tx, id, typ, identifier)
+	})
+	if err != nil {
+		if store.IsUniqueViolation(err) {
+			return dto.User{}, takenErr
+		}
+		return dto.User{}, err
+	}
+	u, _, _, err := s.GetUser(id)
+	return u, err
+}
+
 func (s *Service) ResetPassword(id uuid.UUID, pass string) error {
 	if !password.ValidPlain(pass) {
 		return apperr.New(apperr.ErrInvalidArgument, "WEAK_PASSWORD", "密码至少 8 位")

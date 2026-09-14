@@ -152,6 +152,10 @@ export declare class DAuthClient {
         status?: string;
         roles?: string[];
     }): Promise<User>;
+    /** 直接改绑用户手机号（管理员操作，不校验验证码）。手机号唯一，冲突返回 PHONE_TAKEN。 */
+    adminSetUserPhone(id: string, phone: string): Promise<User>;
+    /** 直接改绑用户邮箱（管理员操作，不校验验证码）。邮箱唯一，冲突返回 EMAIL_TAKEN。 */
+    adminSetUserEmail(id: string, email: string): Promise<User>;
     adminResetPassword(id: string, password: string): Promise<unknown>;
     adminRoles(): Promise<Role[]>;
     adminClients(): Promise<ClientApp[]>;

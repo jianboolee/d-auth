@@ -137,6 +137,36 @@ func (s *Store) IdentitiesOf(userID uuid.UUID) ([]models.Identity, error) {
 	return list, err
 }
 
+// ReplaceIdentity 把用户某类身份整体替换为一个新值：先删掉该类已有记录，再写入新的。
+// 手机号/邮箱在业务上是一对一的，(type, identifier) 上有唯一索引兜底并发。
+func (s *Store) ReplaceIdentity(tx *gorm.DB, userID uuid.UUID, typ, identifier string) error {
+	if tx == nil {
+		tx = s.DB
+	}
+	if err := s.DeleteIdentities(tx, userID, typ); err != nil {
+		return err
+	}
+	now := time.Now()
+	return s.AddIdentity(tx, &models.Identity{
+		UserID: userID, Type: typ, Identifier: identifier, VerifiedAt: &now,
+	})
+}
+
+// DeleteIdentities 解绑用户某类身份（删除该类下的所有记录）。
+func (s *Store) DeleteIdentities(tx *gorm.DB, userID uuid.UUID, typ string) error {
+	if tx == nil {
+		tx = s.DB
+	}
+	return tx.Where("user_id = ? AND type = ?", userID, typ).Delete(&models.Identity{}).Error
+}
+
+// IsUniqueViolation 判断错误是否为唯一约束冲突（Postgres SQLSTATE 23505）。
+// 用于把并发写入撞唯一索引的情况归为「已被占用」，而不是当作 500。
+// 这里不启用 gorm 的 TranslateError：它是全局行为，会改变所有查询的错误值。
+func IsUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "23505")
+}
+
 // HasIdentity 判断用户是否绑定了某类身份，用于「是否已绑手机号」这类轻量检查，
 // 避免为了一个布尔值把整个 identities 列表读出来。
 func (s *Store) HasIdentity(userID uuid.UUID, typ string) (bool, error) {

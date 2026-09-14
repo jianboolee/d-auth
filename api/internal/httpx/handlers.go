@@ -582,6 +582,55 @@ func (h *Handlers) AdminPatchUser(c *gin.Context) {
 	response.OK(c, u)
 }
 
+type setPhoneReq struct {
+	Phone string `json:"phone"`
+}
+
+// AdminSetPhone 直接修改用户手机号，不校验验证码（管理员操作）。手机号唯一。
+func (h *Handlers) AdminSetPhone(c *gin.Context) {
+	id, err := idgen.ParseUserID(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	var req setPhoneReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	u, err := h.Admin.SetUserIdentity(id, models.IdentityPhone, req.Phone)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	// 审计里不记录手机号本身，避免把完整号码写进日志。
+	h.audit(c, "user.set_phone", &id, nil)
+	response.OK(c, u)
+}
+
+type setEmailReq struct {
+	Email string `json:"email"`
+}
+
+// AdminSetEmail 直接修改用户邮箱，不校验验证码（管理员操作）。邮箱唯一。
+func (h *Handlers) AdminSetEmail(c *gin.Context) {
+	id, err := idgen.ParseUserID(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	var req setEmailReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	u, err := h.Admin.SetUserIdentity(id, models.IdentityEmail, req.Email)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "user.set_email", &id, nil)
+	response.OK(c, u)
+}
+
 type resetPassReq struct {
 	Password string `json:"password"`
 }

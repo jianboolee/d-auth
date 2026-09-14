@@ -17,6 +17,7 @@ import {
 import type { Identity, Session, User } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
+import { normalizePhoneInput, phoneLooksValid } from "../phone";
 import { errMessage, identityLabel, roleLabel, statusLabel } from "../labels";
 
 const props = defineProps<{ basePath?: string }>();
@@ -29,6 +30,8 @@ const identities = ref<Identity[]>([]);
 const sessions = ref<Session[]>([]);
 const nickname = ref("");
 const roles = ref<string[]>([]);
+const phone = ref("");
+const email = ref("");
 const password = ref("");
 const roleOptions = ref<{ label: string; value: string }[]>([]);
 
@@ -40,13 +43,36 @@ async function load() {
   sessions.value = detail.sessions;
   nickname.value = detail.user.nickname;
   roles.value = detail.user.roles;
+  phone.value = detail.user.phone ?? "";
+  email.value = detail.user.email ?? "";
   roleOptions.value = rs.map((r) => ({ label: r.name || roleLabel(r.code), value: r.code }));
 }
 
 async function save() {
   if (!user.value) return;
+  const id = user.value.id;
+  // 手机号/邮箱存在 auth_identities 里且有唯一约束，走独立接口；
+  // 两者可以一起改，任一冲突则中断并提示是哪一项。
+  const nextPhone = phone.value.trim();
+  const nextEmail = email.value.trim();
+  const phoneChanged = nextPhone !== (user.value.phone ?? "");
+  const emailChanged = nextEmail !== (user.value.email ?? "");
+  if (phoneChanged && !phoneLooksValid(nextPhone)) {
+    message.warning("手机号格式不正确，请填 13800138000 或 +8613800138000");
+    return;
+  }
   try {
-    user.value = await client.adminPatchUser(user.value.id, { nickname: nickname.value, roles: roles.value });
+    if (phoneChanged) {
+      user.value = await client.adminSetUserPhone(id, nextPhone);
+    }
+    if (emailChanged) {
+      user.value = await client.adminSetUserEmail(id, nextEmail);
+    }
+    user.value = await client.adminPatchUser(id, { nickname: nickname.value, roles: roles.value });
+    identities.value = (await client.adminUser(id)).identities;
+    // 回填后端规范化后的值（如 13800138000 -> +8613800138000），避免输入框与库里不一致
+    phone.value = user.value.phone ?? "";
+    email.value = user.value.email ?? "";
     message.success("已保存");
   } catch (e: unknown) {
     message.error(errMessage(e, "保存失败"));
@@ -85,17 +111,27 @@ onMounted(load);
           <n-descriptions-item label="状态">
             <n-tag :type="user.status === 'active' ? 'success' : 'warning'">{{ statusLabel(user.status) }}</n-tag>
           </n-descriptions-item>
-          <n-descriptions-item label="手机">{{ user.phone || "-" }}</n-descriptions-item>
-          <n-descriptions-item label="邮箱">{{ user.email || "-" }}</n-descriptions-item>
         </n-descriptions>
         <n-form style="margin-top: 20px" label-placement="top">
           <n-form-item label="昵称">
             <n-input v-model:value="nickname" />
           </n-form-item>
+          <n-form-item label="手机号">
+            <n-input
+              :value="phone"
+              inputmode="tel"
+              placeholder="13800138000 或 +8613800138000"
+              @update:value="phone = normalizePhoneInput($event)"
+            />
+          </n-form-item>
+          <n-form-item label="邮箱">
+            <n-input v-model:value="email" placeholder="name@example.com" />
+          </n-form-item>
           <n-form-item label="角色">
             <n-select v-model:value="roles" multiple :options="roleOptions" />
           </n-form-item>
         </n-form>
+        <p class="hint">手机号与邮箱全局唯一，管理员可直接改绑（无需验证码）。</p>
         <n-space>
           <n-button type="primary" @click="save">保存</n-button>
           <n-button v-if="user.status === 'active'" @click="setStatus('disabled')">停用</n-button>
@@ -135,5 +171,10 @@ onMounted(load);
   border-bottom: 1px solid var(--dauth-border, #ececec);
   font-size: 13px;
   color: var(--dauth-text-secondary, #6b6b6b);
+}
+.hint {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--dauth-text-secondary, #8c8c8c);
 }
 </style>
