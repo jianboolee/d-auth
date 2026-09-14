@@ -21,7 +21,7 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 	h := &Handlers{Cfg: cfg, Auth: authSvc, Users: users, Admin: adm}
 
 	r.GET("/health", h.Health)
-	r.GET("/static/*path", StaticUploads(ossstore.DataRoot(cfg.OSSRootDir)))
+	r.GET("/static/*path", StaticUploads(ossstore.DataRoot()))
 
 	v1 := r.Group("/v1")
 	{

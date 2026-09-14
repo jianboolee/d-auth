@@ -243,13 +243,26 @@ export class DAuthClient {
         });
     }
     async uploadAvatar(file) {
-        const signed = await this.signAvatar(file.type || "image/jpeg");
-        await fetch(signed.upload_url, {
+        const contentType = file.type || "image/jpeg";
+        const signed = await this.signAvatar(contentType);
+        // OSS 直传是跨域请求：签名 URL 自带鉴权，不需要 cookie；若带 credentials，
+        // 浏览器会因 OSS 的 Access-Control-Allow-Origin: * 而拒绝整个响应。
+        // 同源地址（mock 模式的 /v1/...）仍要 cookie 和 X-DAuth-Client 以通过 CSRF 校验。
+        const crossOrigin = /^https?:\/\//i.test(signed.upload_url);
+        const headers = { "Content-Type": contentType };
+        if (!crossOrigin)
+            headers["X-DAuth-Client"] = this.clientKey;
+        const res = await fetch(signed.upload_url, {
             method: "PUT",
             body: file,
-            headers: { "Content-Type": file.type || "image/jpeg", "X-DAuth-Client": this.clientKey },
-            credentials: this.mode === "cookie" ? "include" : "omit",
+            headers,
+            credentials: crossOrigin ? "omit" : this.mode === "cookie" ? "include" : "omit",
         });
+        // fetch 只在网络/CORS 失败时抛错；OSS 返回 4xx/5xx 仍会 resolve，
+        // 不检查会继续 confirm 并把坏 key 写入用户资料。
+        if (!res.ok) {
+            throw new Error(`头像上传失败（HTTP ${res.status}）`);
+        }
         return this.confirmAvatar(signed.object_key);
     }
     adminUsers(params = {}) {

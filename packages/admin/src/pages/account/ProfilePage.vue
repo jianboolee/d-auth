@@ -43,7 +43,10 @@ async function onFile(e: Event) {
 <template>
   <n-card title="个人资料" class="dauth-page">
     <n-space align="center" style="margin-bottom: 20px">
-      <n-avatar :src="user?.avatar_url" :size="64" round>{{ user?.nickname?.slice(0, 1) }}</n-avatar>
+      <!-- 首字母必须放在 #fallback：默认插槽会覆盖 src，导致有头像也不渲染图片 -->
+      <n-avatar :src="user?.avatar_url" :size="64" round>
+        <template #fallback>{{ user?.nickname?.slice(0, 1) }}</template>
+      </n-avatar>
       <n-button @click="file?.click()">
         <template #icon><i class="ri-camera-line dauth-ri" /></template>
         更换头像

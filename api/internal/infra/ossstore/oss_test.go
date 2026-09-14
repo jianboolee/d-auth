@@ -1,6 +1,10 @@
 package ossstore_test
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,5 +138,80 @@ func TestAliyunSignsFullObjectPath(t *testing.T) {
 	}
 	if public != "https://cdn.example.com/"+key+"?x-oss-process=image/resize,m_fill,w_360,h_360" {
 		t.Fatalf("unexpected public url %q", public)
+	}
+}
+
+// 独立复算 PUT 签名，确认 SignPut 生成的签名与阿里云 V1 签名规则一致
+// （与 OSS 端 StringToSign = "PUT\n\n{Content-Type}\n{Expires}\n/{bucket}/{key}"）。
+func TestAliyunPutSignatureMatchesOSSV1(t *testing.T) {
+	cfg := testCfg("uploads")
+	store := ossstore.NewAliyun(cfg)
+
+	key, upload, _, _, err := store.SignPut("image/jpeg", "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := url.Parse(upload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	expire := q.Get("Expires")
+	sig := q.Get("Signature")
+
+	resource := "/" + cfg.OSSBucket + "/" + key
+	stringToSign := "PUT\n\nimage/jpeg\n" + expire + "\n" + resource
+	mac := hmac.New(sha1.New, []byte(cfg.OSSAccessKeySecret))
+	mac.Write([]byte(stringToSign))
+	want := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	if sig != want {
+		t.Fatalf("signature mismatch\n got %q\nwant %q\nstringToSign=%q", sig, want, stringToSign)
+	}
+	// 签名值必须以 base64 原始形态出现在 query 中；"/" "+" "=" 需转义。
+	if strings.Contains(upload, "Signature="+want) {
+		t.Fatalf("signature should be url-escaped in %q", upload)
+	}
+}
+
+// 嵌套根目录（如 uploads/avatars）在 mock 模式下必须与 SaveLocal 的落盘位置一致，
+// 否则 /static/ 路由会因重复前缀而 404。
+func TestSaveLocalNestedRootDir(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	cfg := testCfg("uploads/avatars")
+	store := ossstore.NewMock(cfg)
+	key, _, public, _, err := store.SignPut("image/png", "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(key, "uploads/avatars/user-1/") {
+		t.Fatalf("unexpected key %q", key)
+	}
+	if err := store.SaveLocal(key, []byte("DATA")); err != nil {
+		t.Fatal(err)
+	}
+	// 落盘路径 = DataRoot + 完整对象键
+	onDisk := filepath.Join(ossstore.DataRoot(), filepath.FromSlash(key))
+	body, err := os.ReadFile(onDisk)
+	if err != nil {
+		t.Fatalf("read %s: %v", onDisk, err)
+	}
+	if string(body) != "DATA" {
+		t.Fatalf("body = %q", body)
+	}
+	// 公开地址去掉 CDN 前缀后，应等于 / + 完整对象键（静态路由据此定位文件）
+	want := "https://cdn.example.com/" + key + "?x-oss-process=image/resize,m_fill,w_360,h_360"
+	if public != want {
+		t.Fatalf("public = %q want %q", public, want)
 	}
 }

@@ -21,22 +21,21 @@ type Store interface {
 	SaveLocal(objectKey string, data []byte) error
 }
 
-// DataRoot 是 mock 模式在本地磁盘上的存储根目录，与 OSS 的根目录保持一致。
-func DataRoot(rootDir string) string { return filepath.Join("data", rootDir) }
+// DataRoot 是 mock 模式在本地磁盘上的存储基目录。对象键（含 OSSRootDir）直接拼在其下，
+// 即 data/<rootDir>/<userID>/<name>；静态服务与 SaveLocal 都以它为基准，避免重复前缀。
+func DataRoot() string { return "data" }
 
 func objectKey(rootDir, userID, ext string) string {
 	return fmt.Sprintf("%s/%s/%s%s", rootDir, userID, idgen.NewString(), ext)
 }
 
 type Mock struct {
-	cfg  *config.Config
-	root string
+	cfg *config.Config
 }
 
 func NewMock(cfg *config.Config) *Mock {
-	root := DataRoot(cfg.OSSRootDir)
-	_ = os.MkdirAll(root, 0o755)
-	return &Mock{cfg: cfg, root: root}
+	_ = os.MkdirAll(filepath.Join(DataRoot(), cfg.OSSRootDir), 0o755)
+	return &Mock{cfg: cfg}
 }
 
 func (m *Mock) SignPut(contentType, userID string) (string, string, string, map[string]string, error) {
@@ -55,7 +54,7 @@ func (m *Mock) SaveLocal(objectKey string, data []byte) error {
 	if clean == "." || !strings.HasPrefix(clean, m.cfg.OSSRootDir+"/") {
 		return fmt.Errorf("invalid object key: %q", objectKey)
 	}
-	full := filepath.Join("data", filepath.FromSlash(clean))
+	full := filepath.Join(DataRoot(), filepath.FromSlash(clean))
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return err
 	}
