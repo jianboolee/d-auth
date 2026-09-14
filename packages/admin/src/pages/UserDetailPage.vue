@@ -15,9 +15,12 @@ import {
   useMessage,
 } from "naive-ui";
 import type { Identity, Session, User } from "@donktech/d-auth-sdk";
+import { computed } from "vue";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
 import { normalizePhoneInput, phoneLooksValid } from "../phone";
+import { useAuthSession } from "../session";
+import { useConfirm } from "../confirm";
 import { errMessage, identityLabel, roleLabel, statusLabel } from "../labels";
 
 const props = defineProps<{ basePath?: string }>();
@@ -25,6 +28,12 @@ const route = useRoute();
 const router = useRouter();
 const client = useAdminClient();
 const message = useMessage();
+const confirm = useConfirm();
+const session = useAuthSession();
+// 后端用 RequireSuperAdmin 守卫，这里只是个显示开关；权限判定以服务端为准。
+const isSuper = computed(() => !!session.user.value?.roles?.includes("superadmin"));
+/** 与后端 usersvc.DeleteAccountConfirm 必须一致。 */
+const DELETE_CONFIRM_TEXT = "确认注销";
 const user = ref<User | null>(null);
 const identities = ref<Identity[]>([]);
 const sessions = ref<Session[]>([]);
@@ -95,6 +104,25 @@ async function resetPass() {
   message.success("密码已重置，其它会话已失效");
 }
 
+function deleteUser() {
+  if (!user.value) return;
+  const u = user.value;
+  confirm({
+    title: "确认注销用户",
+    content: `将注销「${u.nickname}」。该账号将无法登录，其手机号与邮箱会被释放，个人资料被清除。此操作不可恢复。`,
+    positiveText: "确认注销",
+    onPositiveClick: async () => {
+      try {
+        await client.adminDeleteUser(u.id, DELETE_CONFIRM_TEXT);
+        message.success("账号已注销");
+        router.push(`${props.basePath ?? "/admin"}/users`);
+      } catch (e: unknown) {
+        message.error(errMessage(e, "注销失败"));
+      }
+    },
+  });
+}
+
 onMounted(load);
 </script>
 
@@ -136,6 +164,8 @@ onMounted(load);
           <n-button type="primary" @click="save">保存</n-button>
           <n-button v-if="user.status === 'active'" @click="setStatus('disabled')">停用</n-button>
           <n-button v-else type="success" @click="setStatus('active')">启用</n-button>
+          <!-- 注销不可逆；仅超管可用（服务端同样限超管） -->
+          <n-button v-if="isSuper" type="error" ghost @click="deleteUser">注销账号</n-button>
         </n-space>
       </n-card>
       <n-card title="重置密码">

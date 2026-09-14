@@ -131,6 +131,55 @@ func (s *Service) Identities(userID uuid.UUID) ([]models.Identity, error) {
 	return s.store.IdentitiesOf(userID)
 }
 
+// DeleteAccountConfirm 是注销时必须原样提交的确认串。
+//
+// 前端也会要求用户输入同样的文字，但那只是防误触；后端这道校验才是真正的保护：
+// 否则一次误发的请求（或脚本调用）就能不可逆地注销一个账号。
+const DeleteAccountConfirm = "确认注销"
+
+// DeleteAccount 注销账号，抹掉个人信息并释放手机号/邮箱。
+// 这是不可逆操作：调用方（自助接口或后台）负责在此之前完成确认流程。
+func (s *Service) DeleteAccount(userID uuid.UUID, confirm string) error {
+	if confirm != DeleteAccountConfirm {
+		return apperr.New(apperr.ErrInvalidArgument, "CONFIRM_REQUIRED", "请输入确认文字以完成注销")
+	}
+	if _, err := s.store.UserByID(userID); err != nil {
+		return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
+	}
+	// 不允许删除最后一名活跃超管：仓库没有任何 CLI 恢复手段，
+	// 删掉之后将无人能进入后台。
+	if err := s.guardLastSuperAdmin(userID); err != nil {
+		return err
+	}
+	return s.store.DeleteAccount(userID)
+}
+
+// guardLastSuperAdmin 在目标用户是超管时，确认还有其它活跃超管可用。
+func (s *Service) guardLastSuperAdmin(userID uuid.UUID) error {
+	roles, err := s.store.RoleCodes(userID)
+	if err != nil {
+		return err
+	}
+	isSuper := false
+	for _, r := range roles {
+		if r == models.RoleSuperAdmin {
+			isSuper = true
+			break
+		}
+	}
+	if !isSuper {
+		return nil
+	}
+	n, err := s.store.CountActiveSuperAdmins()
+	if err != nil {
+		return err
+	}
+	if n <= 1 {
+		return apperr.New(apperr.ErrInvalidArgument, "LAST_SUPERADMIN", "不能注销最后一个超级管理员")
+	}
+	return nil
+}
+
 func (s *Service) UnbindIdentity(userID, identID uuid.UUID) error {
 	list, err := s.store.IdentitiesOf(userID)
 	if err != nil {

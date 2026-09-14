@@ -160,6 +160,63 @@ func (s *Store) DeleteIdentities(tx *gorm.DB, userID uuid.UUID, typ string) erro
 	return tx.Where("user_id = ? AND type = ?", userID, typ).Delete(&models.Identity{}).Error
 }
 
+// CountActiveSuperAdmins 统计仍可登录的超管数量，用于阻止删除最后一名超管
+// （仓库里没有任何 CLI 恢复手段，删掉之后无人能进后台）。
+func (s *Store) CountActiveSuperAdmins() (int64, error) {
+	var n int64
+	err := s.DB.Model(&models.User{}).
+		Where(`deleted_at IS NULL AND status = ? AND id IN (
+			SELECT ur.user_id FROM auth_user_roles ur
+			JOIN auth_roles r ON r.id = ur.role_id
+			WHERE r.code = ?)`, models.StatusActive, models.RoleSuperAdmin).
+		Count(&n).Error
+	return n, err
+}
+
+// DeleteAccount 注销账号：把用户行改写成不含个人信息的「墓碑」，并释放它占用的资源。
+//
+// 为什么保留这一行而不是物理删除：
+//   - 审计日志的 target_user_id 需要一个仍然存在的 id 才有意义；
+//   - 外键约束（identities / sessions 是 RESTRICT）要求逐表处理，保留墓碑比级联删除更可控。
+//
+// 抹掉的字段与保留的字段：
+//   - 抹掉：昵称、头像 key、简介、性别、密码哈希、最近登录 IP；
+//   - 释放：全部 identity 行（否则 (type, identifier) 唯一索引会永久占用该手机号/邮箱）、
+//     全部 session 行（含 IP 与 User-Agent）、把用户创建的 API Key 的 created_by 置空；
+//   - 保留：id 与 created_at，仅作为墓碑。
+//
+// 访问控制交给 status=deleted + deleted_at：resolveActor 两条路径都要求 status == active，
+// UserByID/ListUsers 都过滤 deleted_at IS NULL，因此墓碑既不能登录也不会出现在后台列表。
+// 整个过程在一个事务里完成，避免中途失败留下「身份已释放但账号仍能登录」的中间态。
+func (s *Store) DeleteAccount(userID uuid.UUID) error {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", userID).Delete(&models.Identity{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", userID).Delete(&models.Session{}).Error; err != nil {
+			return err
+		}
+		// created_by 是 RESTRICT 外键且可空：解绑而不是删掉密钥，
+		// 否则会把可能仍在生产环境使用的密钥一并废掉。
+		if err := tx.Model(&models.APIKey{}).Where("created_by = ?", userID).
+			Update("created_by", nil).Error; err != nil {
+			return err
+		}
+		now := time.Now()
+		return tx.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{
+			"nickname":      "已注销",
+			"avatar_key":    "",
+			"bio":           "",
+			"gender":        0,
+			"password_hash": nil,
+			"last_login_ip": "",
+			"status":        models.StatusDeleted,
+			"deleted_at":    now,
+			"updated_at":    now,
+		}).Error
+	})
+}
+
 // IsUniqueViolation 判断错误是否为唯一约束冲突（Postgres SQLSTATE 23505）。
 // 用于把并发写入撞唯一索引的情况归为「已被占用」，而不是当作 500。
 // 这里不启用 gorm 的 TranslateError：它是全局行为，会改变所有查询的错误值。

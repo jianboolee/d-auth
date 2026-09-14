@@ -5,6 +5,8 @@ import type { Identity } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../../client";
 import { useConfirm } from "../../confirm";
 import { useAuthSession } from "../../session";
+import { useAuthPaths } from "../../paths";
+import { useRouter } from "vue-router";
 import { normalizePhoneInput, phoneLooksValid } from "../../phone";
 import { isRateLimited } from "../../ratelimit";
 import { errMessage, identityLabel } from "../../labels";
@@ -319,6 +321,32 @@ function bindThirdParty(label: string) {
   message.info(`暂不支持在账号内绑定${label}，请使用${label}登录后再操作`);
 }
 
+const router = useRouter();
+const paths = useAuthPaths();
+/** 注销不可逆，要求用户原样输入这串文字（服务端也会校验同一字符串）。 */
+const DELETE_CONFIRM_TEXT = "确认注销";
+const deleteOpen = ref(false);
+const deleteInput = ref("");
+const deleting = ref(false);
+
+const canDelete = computed(() => deleteInput.value.trim() === DELETE_CONFIRM_TEXT);
+
+async function submitDelete() {
+  if (!canDelete.value) return;
+  deleting.value = true;
+  try {
+    await client.deleteAccount(deleteInput.value.trim());
+    session.setUser(null);
+    deleteOpen.value = false;
+    message.success("账号已注销");
+    router.replace(paths.login());
+  } catch (e: unknown) {
+    message.error(errMessage(e, "注销失败"));
+  } finally {
+    deleting.value = false;
+  }
+}
+
 onMounted(() => {
   window.addEventListener("resize", onResize);
   loadIdentities();
@@ -362,6 +390,41 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
         </div>
       </div>
     </div>
+
+    <!-- 危险区：注销账号不可逆，单独成块并保留确认门槛 -->
+    <div class="danger">
+      <div class="danger-text">
+        <span class="danger-title">注销账号</span>
+        <p class="danger-desc">
+          注销后账号将无法登录且不可恢复，绑定的手机号与邮箱会被释放，昵称、头像、简介等信息将被清除。
+        </p>
+      </div>
+      <n-button size="small" type="error" @click="deleteInput = ''; deleteOpen = true">注销账号</n-button>
+    </div>
+
+    <n-modal
+      v-model:show="deleteOpen"
+      preset="card"
+      title="确认注销账号"
+      style="width: 460px"
+    >
+      <p class="danger-modal-desc">
+        此操作不可恢复。请输入 <b>{{ DELETE_CONFIRM_TEXT }}</b> 以确认。
+      </p>
+      <n-input
+        v-model:value="deleteInput"
+        :placeholder="DELETE_CONFIRM_TEXT"
+        @keyup.enter="submitDelete"
+      />
+      <template #footer>
+        <div class="danger-actions">
+          <n-button @click="deleteOpen = false">取消</n-button>
+          <n-button type="error" :disabled="!canDelete" :loading="deleting" @click="submitDelete">
+            确认注销
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
 
     <!-- auto-focus 默认会聚焦抽屉内第一个可聚焦元素（即头部关闭按钮），
          导致刚打开时关闭按钮呈现 active 态；改为手动聚焦第一个输入框。 -->
@@ -501,5 +564,41 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
 }
 .row-sep {
   color: var(--dauth-border);
+}
+/* 危险区：与上面的列表分隔开，避免误点 */
+.danger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--dauth-border, #ececec);
+  border-radius: 12px;
+}
+.danger-text {
+  min-width: 0;
+}
+.danger-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dauth-text, #1a1a1a);
+}
+.danger-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dauth-text-secondary, #8c8c8c);
+}
+.danger-modal-desc {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dauth-text, #1a1a1a);
+}
+.danger-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>

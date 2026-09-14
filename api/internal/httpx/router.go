@@ -70,6 +70,10 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			// 绑定/更换手机号本身不能要求已有手机号，否则新用户无法完成绑定。
 			me.POST("/me/phone/change", h.ChangePhone)
 
+			// 注销账号同样不要求已绑手机号：手机号已失效、无法绑定的人
+			// 也应该能注销自己的账号（与上面的绑定接口同理）。
+			me.DELETE("/me", h.DeleteAccount)
+
 			// 其余账号接口要求已绑定手机号：手机号是主要登录能力，未绑定时
 			// 只放行上面的绑定接口，前端会引导到绑定手机号页。
 			gated := me.Group("")
@@ -100,6 +104,8 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			adminG.PATCH("/users/:id/phone", RequireScope("users:write"), h.AdminSetPhone)
 			adminG.PATCH("/users/:id/email", RequireScope("users:write"), h.AdminSetEmail)
 			adminG.POST("/users/:id/password", RequireScope("users:write"), h.AdminResetPassword)
+			// 注销用户（墓碑式删除）不可逆，限超管
+			adminG.DELETE("/users/:id", RequireSuperAdmin(), h.AdminDeleteUser)
 			adminG.GET("/roles", RequireScope("users:read"), h.AdminRoles)
 			// 角色管理：自定义角色可增删改；系统内置角色（superadmin/admin/user）不可删
 			adminG.POST("/roles", RequireScope("users:write"), h.AdminCreateRole)

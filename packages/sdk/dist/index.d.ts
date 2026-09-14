@@ -82,6 +82,16 @@ export declare class DAuthClient {
         ticket: string;
         qr_url: string;
     }>;
+    /**
+     * 注销当前账号（不可逆）。confirm 必须为「确认注销」，
+     * 服务端会校验。
+     *
+     * 只在成功时清除本地凭据：失败（如确认串写错）不应把用户登出，
+     * 否则会让人误以为账号已经注销。
+     */
+    deleteAccount(confirm: string): Promise<{
+        ok: boolean;
+    }>;
     wechatQrStatus(ticket: string): Promise<{
         status: string;
         tokens?: TokenResult;
@@ -157,6 +167,10 @@ export declare class DAuthClient {
     /** 直接改绑用户邮箱（管理员操作，不校验验证码）。邮箱唯一，冲突返回 EMAIL_TAKEN。 */
     adminSetUserEmail(id: string, email: string): Promise<User>;
     adminResetPassword(id: string, password: string): Promise<unknown>;
+    /** 超管注销指定用户（墓碑式删除，不可逆）。confirm 需为「确认注销」。 */
+    adminDeleteUser(id: string, confirm: string): Promise<{
+        ok: boolean;
+    }>;
     adminRoles(): Promise<Role[]>;
     /** 公开读取用户协议 / 隐私政策（登录页未登录时也会调用）。 */
     legal(): Promise<LegalDocSet>;

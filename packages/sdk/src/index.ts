@@ -268,6 +268,22 @@ export class DAuthClient {
     });
   }
 
+  /**
+   * 注销当前账号（不可逆）。confirm 必须为「确认注销」，
+   * 服务端会校验。
+   *
+   * 只在成功时清除本地凭据：失败（如确认串写错）不应把用户登出，
+   * 否则会让人误以为账号已经注销。
+   */
+  async deleteAccount(confirm: string) {
+    const res = await this.request<{ ok: boolean }>("/v1/me", {
+      method: "DELETE",
+      body: JSON.stringify({ confirm }),
+    });
+    this.clearTokens();
+    return res;
+  }
+
   async wechatQrStatus(ticket: string) {
     const data = await this.request<{ status: string; tokens?: TokenResult }>(
       `/v1/auth/wechat/qr/status?ticket=${encodeURIComponent(ticket)}`,
@@ -422,6 +438,14 @@ export class DAuthClient {
     return this.request(`/v1/admin/users/${id}/password`, {
       method: "POST",
       body: JSON.stringify({ password }),
+    });
+  }
+
+  /** 超管注销指定用户（墓碑式删除，不可逆）。confirm 需为「确认注销」。 */
+  adminDeleteUser(id: string, confirm: string) {
+    return this.request<{ ok: boolean }>(`/v1/admin/users/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirm }),
     });
   }
 

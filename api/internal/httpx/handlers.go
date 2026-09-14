@@ -504,6 +504,46 @@ func (h *Handlers) DeleteIdentity(c *gin.Context) {
 	response.OK(c, gin.H{"ok": true})
 }
 
+type deleteAccountReq struct {
+	Confirm string `json:"confirm"`
+}
+
+// DeleteAccount 用户自助注销：需要显式确认串，成功后清除会话 Cookie。
+func (h *Handlers) DeleteAccount(c *gin.Context) {
+	var req deleteAccountReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	a, _ := contextx.GetActor(c)
+	if err := h.Users.DeleteAccount(a.UserID, req.Confirm); err != nil {
+		WriteError(c, err)
+		return
+	}
+	// 自己就是被删对象，审计的 actor 与 target 相同；审计表没有外键，行会保留。
+	h.audit(c, "user.delete", &a.UserID, nil)
+	h.clearCookie(c)
+	response.OK(c, gin.H{"ok": true})
+}
+
+// AdminDeleteUser 超管注销指定用户（用于协助注销或处理用户请求）。
+func (h *Handlers) AdminDeleteUser(c *gin.Context) {
+	id, err := idgen.ParseUserID(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	var req deleteAccountReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	if err := h.Users.DeleteAccount(id, req.Confirm); err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "user.delete", &id, map[string]any{"by": "admin"})
+	response.OK(c, gin.H{"ok": true})
+}
+
 func (h *Handlers) Sessions(c *gin.Context) {
 	a, _ := contextx.GetActor(c)
 	list, err := h.Users.Sessions(a.UserID)
