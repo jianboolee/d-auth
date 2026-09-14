@@ -63,11 +63,14 @@ defineProps<{
 .auth-body :deep(.n-form-item:last-child) {
   margin-bottom: 0;
 }
-/* naive-ui 将 --n-height / --n-font-size 以内联样式写在组件根上，
-   普通 CSS 变量声明会被内联样式覆盖，需用 !important 才能生效。 */
+/* naive-ui 将 --n-height / --n-font-size / --n-padding-* 以内联样式写在组件根上，
+   普通 CSS 变量声明会被内联样式覆盖，需用 !important 才能生效。
+   左右内边距从 large 默认的 14px 提到 18px，输入框里更松一些。 */
 .auth-body :deep(.n-input) {
   --n-height: 48px !important;
   --n-font-size: 16px !important;
+  --n-padding-left: 18px !important;
+  --n-padding-right: 18px !important;
 }
 .auth-body :deep(.dauth-code-row .n-button) {
   --n-height: 48px !important;
