@@ -2,6 +2,7 @@ package admin
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
@@ -254,10 +255,121 @@ func (s *Service) ResetPassword(id uuid.UUID, pass string) error {
 		Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
 }
 
-func (s *Service) ListRoles() ([]models.Role, error) {
-	var roles []models.Role
-	err := s.store.DB.Order("code").Find(&roles).Error
-	return roles, err
+// RoleView 是后台角色列表的一行。带 user_count 便于判断某个角色是否还在被使用，
+// 不直接复用 models.Role：user_count 是聚合值，放进模型会让其它按角色查询的
+// SELECT 也带上这个并不存在的列。
+type RoleView struct {
+	ID          uuid.UUID `json:"id"`
+	Code        string    `json:"code"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	IsSystem    bool      `json:"is_system"`
+	UserCount   int64     `json:"user_count"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+func (s *Service) ListRoles() ([]RoleView, error) {
+	var out []RoleView
+	err := s.store.DB.Model(&models.Role{}).
+		Select(`auth_roles.id, auth_roles.code, auth_roles.name, auth_roles.description,
+			auth_roles.is_system, auth_roles.created_at,
+			(SELECT COUNT(*) FROM auth_user_roles ur WHERE ur.role_id = auth_roles.id) AS user_count`).
+		Order("auth_roles.code").
+		Scan(&out).Error
+	return out, err
+}
+
+type RoleInput struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// roleCodeRe 限制角色代码：小写字母开头，后接小写字母/数字/下划线/连字符。
+// 代码是鉴权依据（JWT 的 roles claim、HasRole 比较都用它），也是大小写敏感的，
+// 所以只接受小写，避免出现 Admin 与 admin 两个「同名不同权」的角色。
+var roleCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
+
+func (s *Service) CreateRole(in RoleInput) (RoleView, error) {
+	code := strings.TrimSpace(in.Code)
+	name := strings.TrimSpace(in.Name)
+	if !roleCodeRe.MatchString(code) {
+		return RoleView{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_ROLE_CODE",
+			"角色代码需为 2-32 位小写字母、数字、下划线或连字符，且以字母开头")
+	}
+	if name == "" {
+		return RoleView{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_ROLE_NAME", "角色名称不能为空")
+	}
+	role := models.Role{
+		ID:          idgen.New(),
+		Code:        code,
+		Name:        name,
+		Description: strings.TrimSpace(in.Description),
+		IsSystem:    false,
+		CreatedAt:   time.Now(),
+	}
+	if err := s.store.DB.Create(&role).Error; err != nil {
+		if store.IsUniqueViolation(err) {
+			return RoleView{}, apperr.New(apperr.ErrConflict, "ROLE_TAKEN", "角色代码已存在")
+		}
+		return RoleView{}, err
+	}
+	return RoleView{
+		ID: role.ID, Code: role.Code, Name: role.Name, Description: role.Description,
+		IsSystem: role.IsSystem, CreatedAt: role.CreatedAt,
+	}, nil
+}
+
+// UpdateRole 只允许改名称和说明。code 是业务系统与 JWT 引用的稳定标识，
+// 改名会让外部鉴权失效；需要换标识时应新建角色并迁移用户。
+func (s *Service) UpdateRole(id uuid.UUID, name, description *string) (RoleView, error) {
+	var role models.Role
+	if err := s.store.DB.Where("id = ?", id).First(&role).Error; err != nil {
+		return RoleView{}, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "角色不存在")
+	}
+	updates := map[string]any{}
+	if name != nil {
+		n := strings.TrimSpace(*name)
+		if n == "" {
+			return RoleView{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_ROLE_NAME", "角色名称不能为空")
+		}
+		updates["name"] = n
+	}
+	if description != nil {
+		updates["description"] = strings.TrimSpace(*description)
+	}
+	if len(updates) == 0 {
+		return s.getRoleView(id)
+	}
+	if err := s.store.DB.Model(&role).Updates(updates).Error; err != nil {
+		return RoleView{}, err
+	}
+	return s.getRoleView(id)
+}
+
+// DeleteRole 删除自定义角色。系统内置角色（superadmin/admin/user）不允许删除。
+// 该角色与用户的关联记录由外键 ON DELETE CASCADE 一并清除，调用方应先确认影响范围
+// （列表里的 user_count 即为受影响人数）。
+func (s *Service) DeleteRole(id uuid.UUID) error {
+	var role models.Role
+	if err := s.store.DB.Where("id = ?", id).First(&role).Error; err != nil {
+		return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "角色不存在")
+	}
+	if role.IsSystem {
+		return apperr.New(apperr.ErrInvalidArgument, "SYSTEM_ROLE", "系统内置角色不允许删除")
+	}
+	return s.store.DB.Delete(&models.Role{}, "id = ?", id).Error
+}
+
+func (s *Service) getRoleView(id uuid.UUID) (RoleView, error) {
+	var out RoleView
+	err := s.store.DB.Model(&models.Role{}).
+		Select(`auth_roles.id, auth_roles.code, auth_roles.name, auth_roles.description,
+			auth_roles.is_system, auth_roles.created_at,
+			(SELECT COUNT(*) FROM auth_user_roles ur WHERE ur.role_id = auth_roles.id) AS user_count`).
+		Where("auth_roles.id = ?", id).
+		Scan(&out).Error
+	return out, err
 }
 
 func (s *Service) ListClients() ([]models.Client, error) {

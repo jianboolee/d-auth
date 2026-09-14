@@ -417,6 +417,21 @@ export class DAuthClient {
     return this.request<Role[]>("/v1/admin/roles");
   }
 
+  /** 新建自定义角色。code 只能用 2-32 位小写字母、数字、下划线或连字符，且以字母开头。 */
+  adminCreateRole(body: { code: string; name: string; description?: string }) {
+    return this.request<Role>("/v1/admin/roles", { method: "POST", body: JSON.stringify(body) });
+  }
+
+  /** 修改角色名称/说明。code 不可改（业务系统与 JWT 都引用它）。 */
+  adminUpdateRole(id: string, body: { name?: string; description?: string }) {
+    return this.request<Role>(`/v1/admin/roles/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+  }
+
+  /** 删除自定义角色。系统内置角色会返回 SYSTEM_ROLE。 */
+  adminDeleteRole(id: string) {
+    return this.request<{ ok: boolean }>(`/v1/admin/roles/${id}`, { method: "DELETE" });
+  }
+
   adminClients() {
     return this.request<ClientApp[]>("/v1/admin/clients");
   }
@@ -488,7 +503,16 @@ export type Session = {
   created_at: string;
 };
 
-export type Role = { id: string; code: string; name: string; description: string; is_system: boolean };
+export type Role = {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  is_system: boolean;
+  /** 拥有该角色的用户数；删除自定义角色前可据此评估影响。 */
+  user_count: number;
+  created_at: string;
+};
 
 export type ClientApp = {
   id: string;

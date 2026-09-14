@@ -88,6 +88,10 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			adminG.PATCH("/users/:id/email", RequireScope("users:write"), h.AdminSetEmail)
 			adminG.POST("/users/:id/password", RequireScope("users:write"), h.AdminResetPassword)
 			adminG.GET("/roles", RequireScope("users:read"), h.AdminRoles)
+			// 角色管理：自定义角色可增删改；系统内置角色（superadmin/admin/user）不可删
+			adminG.POST("/roles", RequireScope("users:write"), h.AdminCreateRole)
+			adminG.PATCH("/roles/:id", RequireScope("users:write"), h.AdminPatchRole)
+			adminG.DELETE("/roles/:id", RequireScope("users:write"), h.AdminDeleteRole)
 			adminG.GET("/clients", RequireScope("users:write"), h.AdminClients)
 			adminG.POST("/clients", RequireSuperAdmin(), h.AdminCreateClient)
 			adminG.PATCH("/clients/:id", RequireSuperAdmin(), h.AdminPatchClient)

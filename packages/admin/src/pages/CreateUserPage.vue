@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { NButton, NCard, NForm, NFormItem, NInput, NSelect, useMessage } from "naive-ui";
 import { useAdminClient } from "../client";
-import { errMessage, roleOptions } from "../labels";
+import { errMessage, roleLabel } from "../labels";
 
 const props = defineProps<{ basePath?: string }>();
 const client = useAdminClient();
@@ -11,6 +11,19 @@ const router = useRouter();
 const message = useMessage();
 const form = reactive({ nickname: "", phone: "", email: "", password: "", roles: ["user"] });
 const loading = ref(false);
+// 角色列表从后端取，自定义角色才能被分配
+const roleOptions = ref<{ label: string; value: string }[]>([]);
+
+onMounted(async () => {
+  try {
+    roleOptions.value = (await client.adminRoles()).map((r) => ({
+      label: r.name || roleLabel(r.code),
+      value: r.code,
+    }));
+  } catch (e: unknown) {
+    message.error(errMessage(e, "角色加载失败"));
+  }
+});
 
 async function submit() {
   loading.value = true;

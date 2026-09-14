@@ -662,6 +662,58 @@ func (h *Handlers) AdminRoles(c *gin.Context) {
 	response.OK(c, list)
 }
 
+func (h *Handlers) AdminCreateRole(c *gin.Context) {
+	var req admin.RoleInput
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	role, err := h.Admin.CreateRole(req)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "role.create", nil, map[string]any{"role_id": role.ID.String()})
+	response.OK(c, role)
+}
+
+type patchRoleReq struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+}
+
+func (h *Handlers) AdminPatchRole(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	var req patchRoleReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	role, err := h.Admin.UpdateRole(id, req.Name, req.Description)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "role.patch", nil, map[string]any{"role_id": id.String()})
+	response.OK(c, role)
+}
+
+func (h *Handlers) AdminDeleteRole(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	if err := h.Admin.DeleteRole(id); err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "role.delete", nil, map[string]any{"role_id": id.String()})
+	response.OK(c, gin.H{"ok": true})
+}
+
 func (h *Handlers) AdminClients(c *gin.Context) {
 	list, err := h.Admin.ListClients()
 	if err != nil {

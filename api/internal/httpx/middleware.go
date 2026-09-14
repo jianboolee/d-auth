@@ -271,7 +271,7 @@ func WriteError(c *gin.Context, err error) {
 			status = http.StatusForbidden
 		case code == "NOT_FOUND" || code == "QR_EXPIRED":
 			status = http.StatusNotFound
-		case code == "PHONE_TAKEN" || code == "EMAIL_TAKEN" || code == "CLIENT_TAKEN":
+		case code == "PHONE_TAKEN" || code == "EMAIL_TAKEN" || code == "CLIENT_TAKEN" || code == "ROLE_TAKEN":
 			status = http.StatusConflict
 		case code == "SEND_TOO_FAST" || code == "SEND_LIMIT":
 			status = http.StatusTooManyRequests
