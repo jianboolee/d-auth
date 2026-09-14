@@ -1,6 +1,8 @@
 package httpx
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/infra/ossstore"
@@ -16,6 +18,12 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 		gin.SetMode(gin.ReleaseMode)
 	}
 	r := gin.New()
+	// 只信任配置里的代理，ClientIP() 才会采信 X-Forwarded-For。
+	// gin 默认信任所有代理，那样 XFF 可被伪造，按 IP 限流会形同虚设。
+	// 配错（未包含真实代理）会让所有请求塌缩成同一个 IP，反而误封所有人。
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		slog.Error("set trusted proxies", "err", err, "proxies", cfg.TrustedProxies)
+	}
 	r.Use(Recover(), RequestID(), Logger(), CORS(cfg))
 
 	h := &Handlers{Cfg: cfg, Auth: authSvc, Users: users, Admin: adm}

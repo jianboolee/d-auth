@@ -19,9 +19,13 @@ func NewAliyun(cfg *config.Config) *Aliyun {
 }
 
 func (a *Aliyun) Send(ctx context.Context, phone, code, scene string) error {
+	// scene 已在 auth.SendSMS 做过白名单校验（当前只放行 login / bind_phone）。
+	// reset_password 的分支暂时不可达——短信重置密码还没有对应流程；保留它是为了让
+	// DAUTH_ALIYUN_SMS_TEMPLATE_RESET 这个配置项有意义，将来启用只需在
+	// auth.smsScenes 里加上 reset_password 一行。
 	tpl := a.cfg.SMSTemplateLogin
 	switch scene {
-	case "bind_phone", "change_phone":
+	case "bind_phone":
 		if a.cfg.SMSTemplateBind != "" {
 			tpl = a.cfg.SMSTemplateBind
 		}

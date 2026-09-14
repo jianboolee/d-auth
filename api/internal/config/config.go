@@ -37,6 +37,16 @@ type Config struct {
 	InitAdminEmail string
 	// CodeTTL 是短信/邮件验证码的有效期，同时用于短信模板里的「X 分钟内有效」。
 	CodeTTL time.Duration
+	// 验证码发送限流。按「目标」（手机号/邮箱）与「来源 IP」两个维度各自限流：
+	// 目标维度是硬上限（换 scene 也会共用同一配额），IP 维度用于挡住批量枚举。
+	CodeCooldown    time.Duration
+	CodePerTargetHr int
+	CodePerIPMinute int
+	CodePerIPHour   int
+	// TrustedProxies 是可信代理地址，决定 gin 是否采信 X-Forwarded-For。
+	// 只有来自这些地址的请求，ClientIP() 才会取 XFF，否则用直连地址——
+	// 配错会让所有请求塌缩成同一个 IP，IP 限流会误封所有人。
+	TrustedProxies []string
 	// MasterKey 用于加密数据库中保存的各应用微信 AppSecret（AES-256-GCM，密钥为 SHA256(MasterKey)）。
 	// 上线后不应更改，否则已加密的 AppSecret 将无法解密。
 	MasterKey string
@@ -140,6 +150,11 @@ func Load() *Config {
 		InitAdminPhone:           env("DAUTH_INIT_ADMIN_PHONE", ""),
 		InitAdminEmail:           strings.ToLower(strings.TrimSpace(env("DAUTH_INIT_ADMIN_EMAIL", ""))),
 		CodeTTL:                  envDuration("DAUTH_CODE_TTL", 5*time.Minute),
+		CodeCooldown:             envDuration("DAUTH_CODE_COOLDOWN", 60*time.Second),
+		CodePerTargetHr:          envInt("DAUTH_CODE_PER_TARGET_HOUR", 10),
+		CodePerIPMinute:          envInt("DAUTH_CODE_PER_IP_MINUTE", 10),
+		CodePerIPHour:            envInt("DAUTH_CODE_PER_IP_HOUR", 100),
+		TrustedProxies:           splitCSV(env("DAUTH_TRUSTED_PROXIES", "127.0.0.1,::1")),
 		MasterKey:                env("DAUTH_MASTER_KEY", "dev-master-key-change-me-32b!!!!!!!!"),
 		AliyunAccessKeyID:        aliyunKeyID,
 		AliyunAccessKeySecret:    aliyunKeySecret,

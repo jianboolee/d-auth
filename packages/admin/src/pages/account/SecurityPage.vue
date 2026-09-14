@@ -6,6 +6,7 @@ import { useAdminClient } from "../../client";
 import { useConfirm } from "../../confirm";
 import { useAuthSession } from "../../session";
 import { normalizePhoneInput, phoneLooksValid } from "../../phone";
+import { isRateLimited } from "../../ratelimit";
 import { errMessage, identityLabel } from "../../labels";
 
 const client = useAdminClient();
@@ -161,6 +162,8 @@ async function sendNewCode() {
     startNewCd();
   } catch (e: unknown) {
     message.error(errMessage(e));
+    // 命中限流也进入倒计时，避免反复点击被连续拒绝（真正的限制在服务端）
+    if (isRateLimited(e)) startNewCd();
   } finally {
     ph.sendingNew = false;
   }
@@ -178,6 +181,7 @@ async function sendEmailCode() {
     startEmailCd();
   } catch (e: unknown) {
     message.error(errMessage(e));
+    if (isRateLimited(e)) startEmailCd();
   } finally {
     em.sending = false;
   }

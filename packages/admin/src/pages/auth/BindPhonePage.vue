@@ -6,6 +6,7 @@ import { useAdminClient } from "../../client";
 import { useAuthSession } from "../../session";
 import { useAuthPaths } from "../../paths";
 import { toLocalCNPhone } from "../../phone";
+import { isRateLimited } from "../../ratelimit";
 import { errMessage } from "../../labels";
 import AuthShell from "./AuthShell.vue";
 
@@ -68,6 +69,8 @@ async function send() {
     startCountdown(60);
   } catch (e: unknown) {
     setTip(errMessage(e), "error");
+    // 命中限流也进入倒计时，避免反复点击被连续拒绝（真正的限制在服务端）
+    if (isRateLimited(e)) startCountdown(60);
   } finally {
     sending.value = false;
   }

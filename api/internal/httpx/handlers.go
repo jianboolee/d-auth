@@ -67,7 +67,7 @@ func (h *Handlers) SendSMS(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	if _, err := h.Auth.SendSMS(c, req.Phone, req.Scene); err != nil {
+	if _, err := h.Auth.SendSMS(c, req.Phone, req.Scene, c.ClientIP()); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -103,7 +103,7 @@ func (h *Handlers) SendEmail(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	if _, err := h.Auth.SendEmail(c, req.Email, req.Scene); err != nil {
+	if _, err := h.Auth.SendEmail(c, req.Email, req.Scene, c.ClientIP()); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -176,7 +176,7 @@ func (h *Handlers) ForgotPassword(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	if err := h.Auth.ForgotPassword(c, req.Email); err != nil {
+	if err := h.Auth.ForgotPassword(c, req.Email, c.ClientIP()); err != nil {
 		WriteError(c, err)
 		return
 	}

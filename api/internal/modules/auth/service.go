@@ -51,18 +51,50 @@ type LoginMeta struct {
 	ClientKey string
 }
 
-func (s *Service) SendSMS(ctx context.Context, phoneRaw, scene string) (string, error) {
+// 各渠道允许的验证码场景，只列出服务端真正会 Verify 的场景。
+//
+// scene 会进入验证码 key 与短信模板选择，必须白名单化：否则攻击者可以对同一个
+// 号码不断更换 scene，每次拿到一份新的限流配额，而未知 scene 仍会发出真实短信。
+//
+// 注意：若要新增「短信重置密码」，需把 reset_password 加到 smsScenes，
+// 否则会被当成非法场景拒绝。
+var (
+	smsScenes = map[string]struct{}{
+		"login":      {},
+		"bind_phone": {},
+	}
+	emailScenes = map[string]struct{}{
+		"register":       {},
+		"reset_password": {},
+		"bind_email":     {},
+	}
+)
+
+func sceneAllowed(allowed map[string]struct{}, scene, fallback string) (string, bool) {
+	if scene == "" {
+		scene = fallback
+	}
+	if _, ok := allowed[scene]; !ok {
+		return "", false
+	}
+	return scene, true
+}
+
+func (s *Service) SendSMS(ctx context.Context, phoneRaw, scene, ip string) (string, error) {
 	phone, ok := normalize.Phone(phoneRaw)
 	if !ok {
 		return "", apperr.New(apperr.ErrInvalidArgument, "INVALID_PHONE", "手机号不正确")
 	}
-	if scene == "" {
-		scene = "login"
+	scene, ok = sceneAllowed(smsScenes, scene, "login")
+	if !ok {
+		return "", apperr.New(apperr.ErrInvalidArgument, "INVALID_SCENE", "不支持的场景")
 	}
-	code, err := s.codes.Issue(ctx, scene, phone)
+	code, err := s.codes.Issue(ctx, codes.IssueInput{Scene: scene, Target: phone, IP: ip, Channel: "sms"})
 	if err != nil {
 		return "", err
 	}
+	slog.Info("verification code sent", "channel", "sms", "scene", scene,
+		"target", normalize.MaskTarget(phone), "ip", ip)
 	s.logDevCode("sms", phone, scene, code)
 	if err := s.sms.Send(ctx, phone, code, scene); err != nil {
 		return "", apperr.New(err, "SMS_FAILED", "短信发送失败")
@@ -85,18 +117,21 @@ func (s *Service) SMSLogin(ctx context.Context, phoneRaw, code string, meta Logi
 	return s.issueSession(user, meta)
 }
 
-func (s *Service) SendEmail(ctx context.Context, emailRaw, scene string) (string, error) {
+func (s *Service) SendEmail(ctx context.Context, emailRaw, scene, ip string) (string, error) {
 	email, ok := normalize.Email(emailRaw)
 	if !ok {
 		return "", apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
 	}
-	if scene == "" {
-		scene = "register"
+	scene, ok = sceneAllowed(emailScenes, scene, "register")
+	if !ok {
+		return "", apperr.New(apperr.ErrInvalidArgument, "INVALID_SCENE", "不支持的场景")
 	}
-	code, err := s.codes.Issue(ctx, scene, email)
+	code, err := s.codes.Issue(ctx, codes.IssueInput{Scene: scene, Target: email, IP: ip, Channel: "email"})
 	if err != nil {
 		return "", err
 	}
+	slog.Info("verification code sent", "channel", "email", "scene", scene,
+		"target", normalize.MaskTarget(email), "ip", ip)
 	s.logDevCode("email", email, scene, code)
 	if err := s.mail.SendCode(ctx, email, code, scene); err != nil {
 		return "", apperr.New(err, "MAIL_FAILED", "邮件发送失败")
@@ -181,7 +216,7 @@ func (s *Service) passwordLoginByIdentity(typ, identifier, pass string, meta Log
 	return s.issueSession(user, meta)
 }
 
-func (s *Service) ForgotPassword(ctx context.Context, emailRaw string) error {
+func (s *Service) ForgotPassword(ctx context.Context, emailRaw, ip string) error {
 	email, ok := normalize.Email(emailRaw)
 	if !ok {
 		return apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
@@ -189,7 +224,7 @@ func (s *Service) ForgotPassword(ctx context.Context, emailRaw string) error {
 	if _, err := s.store.FindIdentity(models.IdentityEmail, email); err != nil {
 		return nil
 	}
-	_, err := s.SendEmail(ctx, email, "reset_password")
+	_, err := s.SendEmail(ctx, email, "reset_password", ip)
 	return err
 }
 

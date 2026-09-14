@@ -75,6 +75,18 @@ func MaskPhoneDisplay(p string) string {
 	return MaskPhone(strings.TrimPrefix(p, "+86"))
 }
 
+// MaskTarget 按标识形态自动选择脱敏方式：含 @ 的当邮箱，其余当手机号。
+// 用于日志（手机号/邮箱都不应明文落到日志里）。
+func MaskTarget(s string) string {
+	if s == "" {
+		return ""
+	}
+	if strings.Contains(s, "@") {
+		return MaskEmail(s)
+	}
+	return MaskPhoneDisplay(s)
+}
+
 func MaskEmail(e string) string {
 	parts := strings.Split(e, "@")
 	if len(parts) != 2 {
