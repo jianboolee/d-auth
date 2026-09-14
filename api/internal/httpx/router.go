@@ -98,6 +98,7 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			adminG.GET("/api-keys", RequireSuperAdmin(), h.AdminAPIKeys)
 			adminG.POST("/api-keys", RequireSuperAdmin(), h.AdminCreateAPIKey)
 			adminG.PATCH("/api-keys/:id", RequireSuperAdmin(), h.AdminPatchAPIKey)
+			adminG.DELETE("/api-keys/:id", RequireSuperAdmin(), h.AdminDeleteAPIKey)
 			adminG.GET("/audit-logs", RequireScope("users:read"), h.AdminAudit)
 		}
 

@@ -4,14 +4,36 @@ import { NButton, NCard, NDataTable, NForm, NFormItem, NInput, NModal, NSelect, 
 import type { DataTableColumns } from "naive-ui";
 import type { ApiKey } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
+import { useConfirm } from "../confirm";
+import { formatDateTime } from "../datetime";
 import { errMessage, scopeOptions, statusLabel } from "../labels";
 
 const client = useAdminClient();
 const message = useMessage();
+const confirm = useConfirm();
 const items = ref<ApiKey[]>([]);
 const show = ref(false);
 const secret = ref("");
 const form = reactive({ name: "", scopes: ["users:read", "users:write"] as string[], days: "0" });
+
+function remove(key: ApiKey) {
+  // 最近用过说明可能有服务还在用，提示出来，避免误删导致线上中断
+  const used = key.last_used_at ? `该密钥最近使用于 ${formatDateTime(key.last_used_at)}，删除后使用它的服务会立即失败。` : "";
+  confirm({
+    title: "确认删除接口密钥",
+    content: `确定删除「${key.name}」？${used}`,
+    positiveText: "删除",
+    onPositiveClick: async () => {
+      try {
+        await client.adminDeleteApiKey(key.id);
+        message.success("已删除");
+        await load();
+      } catch (e: unknown) {
+        message.error(errMessage(e, "删除失败"));
+      }
+    },
+  });
+}
 
 const columns: DataTableColumns<ApiKey> = [
   { title: "名称", key: "name" },
@@ -21,6 +43,13 @@ const columns: DataTableColumns<ApiKey> = [
     title: "状态",
     key: "status",
     render: (r) => h(NTag, { size: "small", type: r.status === "active" ? "success" : "warning" }, { default: () => statusLabel(r.status) }),
+  },
+  { title: "最近使用", key: "last_used_at", render: (r) => formatDateTime(r.last_used_at) },
+  {
+    title: "操作",
+    key: "op",
+    render: (r) =>
+      h(NButton, { text: true, type: "error", onClick: () => remove(r) }, { default: () => "删除" }),
   },
 ];
 

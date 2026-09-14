@@ -519,6 +519,18 @@ func (s *Service) PatchAPIKey(id uuid.UUID, status *string, scopes []string) (*m
 	return &k, nil
 }
 
+// DeleteAPIKey 删除接口密钥。这里做物理删除：密钥的 key_hash 是唯一凭据，
+// 删掉即彻底失效，符合「删除」的直觉；列表里也不再显示，避免被误当成仍可用。
+// 审计日志里的 api_key_id 不受影响（auth_audit_logs.api_key_id 没有外键），
+// 仍保留历史记录，只是该 id 不再对应到任何密钥。
+func (s *Service) DeleteAPIKey(id uuid.UUID) error {
+	var k models.APIKey
+	if err := s.store.DB.Where("id = ?", id).First(&k).Error; err != nil {
+		return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "密钥不存在")
+	}
+	return s.store.DB.Delete(&models.APIKey{}, "id = ?", id).Error
+}
+
 func (s *Service) ListAudit(q string, page, size int) ([]models.AuditLog, int64, error) {
 	if page < 1 {
 		page = 1

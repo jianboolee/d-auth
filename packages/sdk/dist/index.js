@@ -356,6 +356,10 @@ export class DAuthClient {
     adminPatchApiKey(id, body) {
         return this.request(`/v1/admin/api-keys/${id}`, { method: "PATCH", body: JSON.stringify(body) });
     }
+    /** 删除接口密钥（物理删除，密钥立即失效且不再出现在列表里）。 */
+    adminDeleteApiKey(id) {
+        return this.request(`/v1/admin/api-keys/${id}`, { method: "DELETE" });
+    }
     /** 其它后端用 API Key 按用户 ID 查资料 */
     internalUser(id) {
         return this.request(`/v1/internal/users/${id}`);

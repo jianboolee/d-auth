@@ -806,6 +806,20 @@ func (h *Handlers) AdminPatchAPIKey(c *gin.Context) {
 	response.OK(c, k)
 }
 
+func (h *Handlers) AdminDeleteAPIKey(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	if err := h.Admin.DeleteAPIKey(id); err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "api_key.delete", nil, map[string]any{"api_key_id": id.String()})
+	response.OK(c, gin.H{"ok": true})
+}
+
 func (h *Handlers) AdminAudit(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "20"))

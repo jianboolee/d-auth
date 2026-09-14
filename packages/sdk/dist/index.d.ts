@@ -193,6 +193,10 @@ export declare class DAuthClient {
         status?: string;
         scopes?: string[];
     }): Promise<ApiKey>;
+    /** 删除接口密钥（物理删除，密钥立即失效且不再出现在列表里）。 */
+    adminDeleteApiKey(id: string): Promise<{
+        ok: boolean;
+    }>;
     /** 其它后端用 API Key 按用户 ID 查资料 */
     internalUser(id: string): Promise<User>;
     /** 其它后端用 API Key 按手机号或邮箱查资料 */
