@@ -64,9 +64,11 @@ func FromUser(u *models.User, roles []string, idents []models.Identity, avatar f
 	return out
 }
 
+// Masked 脱敏手机号与邮箱。手机号用 MaskPhoneDisplay 去掉国际区号，
+// 让国内号码显示成 138****8000 而不是 +86138****8000。
 func Masked(u User) User {
 	if u.Phone != "" {
-		u.Phone = normalize.MaskPhone(u.Phone)
+		u.Phone = normalize.MaskPhoneDisplay(u.Phone)
 	}
 	if u.Email != "" {
 		u.Email = normalize.MaskEmail(u.Email)
@@ -101,6 +103,28 @@ func FromIdentities(list []models.Identity) []Identity {
 	out := make([]Identity, 0, len(list))
 	for i := range list {
 		out = append(out, FromIdentity(&list[i]))
+	}
+	return out
+}
+
+// Mask 脱敏手机号与邮箱标识。第三方标识（微信 openid 等）不是用户隐私，
+// 且界面靠它区分账号，保持原样。
+func (i Identity) Mask() Identity {
+	switch i.Type {
+	case models.IdentityPhone:
+		i.Identifier = normalize.MaskPhoneDisplay(i.Identifier)
+	case models.IdentityEmail:
+		i.Identifier = normalize.MaskEmail(i.Identifier)
+	}
+	return i
+}
+
+// FromIdentitiesMasked 供用户自助接口使用。自助接口若只脱敏用户信息、
+// 却在这里原样返回 identifier，绑定列表就成了绕过脱敏的入口。
+func FromIdentitiesMasked(list []models.Identity) []Identity {
+	out := FromIdentities(list)
+	for i := range out {
+		out[i] = out[i].Mask()
 	}
 	return out
 }

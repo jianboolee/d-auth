@@ -420,7 +420,8 @@ func (h *Handlers) Identities(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	response.OK(c, dto.FromIdentities(list))
+	// 自助接口：手机号/邮箱脱敏（后台的 AdminUser 仍返回明文）
+	response.OK(c, dto.FromIdentitiesMasked(list))
 }
 
 func (h *Handlers) DeleteIdentity(c *gin.Context) {

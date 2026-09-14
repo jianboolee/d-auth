@@ -117,3 +117,57 @@ func TestIdentityAndAuditExposeUserIDForms(t *testing.T) {
 		t.Fatalf("audit target = %v, want %q", logs[0].TargetUserID, want)
 	}
 }
+
+// 自助接口用 dto.Masked 脱敏；手机号要去掉 +86 区号再脱敏。
+func TestMaskedHidesPhoneAndEmail(t *testing.T) {
+	user := dto.User{
+		ID:    "abc",
+		Phone: "+8613800138000",
+		Email: "zhangsan@example.com",
+	}
+	got := dto.Masked(user)
+	if got.Phone != "138****8000" {
+		t.Fatalf("phone = %q, want 138****8000", got.Phone)
+	}
+	if got.Email == user.Email || got.Email != "z***n@example.com" {
+		t.Fatalf("email = %q, want masked z***n@example.com", got.Email)
+	}
+	// 未绑定/空值不应变成 "***"
+	empty := dto.Masked(dto.User{ID: "abc"})
+	if empty.Phone != "" || empty.Email != "" {
+		t.Fatalf("empty values should stay empty, got %q %q", empty.Phone, empty.Email)
+	}
+}
+
+// 国际号码保留国家码，只脱敏中间部分。
+func TestMaskedKeepsInternationalPrefix(t *testing.T) {
+	got := dto.Masked(dto.User{Phone: "+14155552671"})
+	if got.Phone != "+141****2671" {
+		t.Fatalf("phone = %q, want +141****2671", got.Phone)
+	}
+}
+
+// identities 列表也要脱敏，否则它就成了绕过 /me 脱敏的入口；
+// 第三方标识（微信 openid）不属于隐私，保持原样。
+func TestFromIdentitiesMasked(t *testing.T) {
+	list := []models.Identity{
+		{Type: models.IdentityPhone, Identifier: "+8613800138000"},
+		{Type: models.IdentityEmail, Identifier: "zhangsan@example.com"},
+		{Type: models.IdentityWechatOpen, Identifier: "openid-abc"},
+	}
+	out := dto.FromIdentitiesMasked(list)
+	if out[0].Identifier != "138****8000" {
+		t.Fatalf("phone identifier = %q", out[0].Identifier)
+	}
+	if out[1].Identifier != "z***n@example.com" {
+		t.Fatalf("email identifier = %q", out[1].Identifier)
+	}
+	if out[2].Identifier != "openid-abc" {
+		t.Fatalf("third-party identifier should be untouched, got %q", out[2].Identifier)
+	}
+	// FromIdentities（后台用）不应脱敏
+	plain := dto.FromIdentities(list)
+	if plain[0].Identifier != "+8613800138000" {
+		t.Fatalf("FromIdentities must keep plaintext for admin, got %q", plain[0].Identifier)
+	}
+}

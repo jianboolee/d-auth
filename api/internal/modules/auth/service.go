@@ -494,10 +494,13 @@ func (s *Service) pack(user *models.User, roles []string, access, refresh string
 		RefreshToken: refresh,
 		TokenType:    "Bearer",
 		ExpiresIn:    int(s.cfg.JWTAccessTTL.Seconds()),
-		User:         dto.FromUser(user, roles, idents, s.cfg.AvatarURL),
+		// 登录响应属于自助接口，手机号/邮箱脱敏后再返回。
+		User: dto.Masked(dto.FromUser(user, roles, idents, s.cfg.AvatarURL)),
 	}
 }
 
+// PublicUser 返回「本人视角」的用户信息，手机号/邮箱脱敏。
+// 后台与 internal 接口不用它——那些走 admin.GetUser，保留明文供管理员核对与编辑。
 func (s *Service) PublicUser(userID uuid.UUID) (dto.User, error) {
 	user, err := s.store.UserByID(userID)
 	if err != nil {
@@ -505,7 +508,7 @@ func (s *Service) PublicUser(userID uuid.UUID) (dto.User, error) {
 	}
 	roles, _ := s.store.RoleCodes(userID)
 	idents, _ := s.store.IdentitiesOf(userID)
-	return dto.FromUser(user, roles, idents, s.cfg.AvatarURL), nil
+	return dto.Masked(dto.FromUser(user, roles, idents, s.cfg.AvatarURL)), nil
 }
 
 func (s *Service) maybePromoteAdmin(user *models.User, phone, email string) {

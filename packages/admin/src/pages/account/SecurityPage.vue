@@ -44,19 +44,14 @@ const thirdPartyRows = computed(() =>
   })),
 );
 
+// 后端已对 /v1/me 的手机号/邮箱脱敏，这里直接用返回的值展示；
+// maskPhone 只用于用户刚输入的本地值（确认弹窗里预览）。
 function maskPhone(raw?: string) {
   if (!raw) return "";
   const digits = raw.replace(/\D/g, "");
   const local = digits.startsWith("86") && digits.length > 11 ? digits.slice(2) : digits;
   if (local.length !== 11) return raw;
   return `${local.slice(0, 3)}****${local.slice(7)}`;
-}
-
-function maskEmail(raw?: string) {
-  if (!raw) return "";
-  const [local, domain] = raw.split("@");
-  if (!domain) return raw;
-  return `${local.slice(0, 3)}***@${domain}`;
 }
 
 /** 独立的 60s 重发倒计时，每个验证码字段一份。 */
@@ -103,14 +98,14 @@ const rows = computed(() => [
     key: "phone" as Panel,
     icon: "ri-smartphone-line",
     title: "手机号码",
-    status: boundPhone.value ? maskPhone(boundPhone.value) : "未绑定",
+    status: boundPhone.value || "未绑定",
     action: boundPhone.value ? "更换" : "绑定",
   },
   {
     key: "email" as Panel,
     icon: "ri-mail-line",
     title: "邮箱",
-    status: boundEmail.value ? maskEmail(boundEmail.value) : "未绑定",
+    status: boundEmail.value || "未绑定",
     action: boundEmail.value ? "更换" : "绑定",
   },
 ]);
@@ -394,7 +389,7 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
 
         <n-form v-else-if="panel === 'phone'" label-placement="top">
           <n-form-item v-if="boundPhone" label="当前手机号">
-            <n-input :value="maskPhone(boundPhone)" disabled />
+            <n-input :value="boundPhone" disabled />
           </n-form-item>
           <n-form-item label="新手机号">
             <n-input
