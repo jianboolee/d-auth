@@ -1,0 +1,43 @@
+# 只跑应用，PostgreSQL / Redis 使用现有实例。
+# 必填：DATABASE_URL、REDIS_ADDR、DAUTH_MASTER_KEY
+# 对外端口默认 8680。
+
+services:
+  app:
+    image: ${DOCKER_IMAGE:-jianboo/d-auth}:${DOCKER_TAG:-latest}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      HTTP_PORT: "8681"
+      DAUTH_PUBLIC_URL: ${DAUTH_PUBLIC_URL:-}
+      DAUTH_WEB_ORIGIN: ${DAUTH_WEB_ORIGIN:-}
+      DAUTH_JWT_ISSUER: ${DAUTH_JWT_ISSUER:-}
+      DAUTH_JWT_PRIVATE_KEY_PATH: /app/data/jwt-private.pem
+      DAUTH_COOKIE_DOMAIN: ${DAUTH_COOKIE_DOMAIN:-}
+      DAUTH_COOKIE_SECURE: ${DAUTH_COOKIE_SECURE:-true}
+      DAUTH_COOKIE_NAME: ${DAUTH_COOKIE_NAME:-__Secure-dauth_session}
+      DAUTH_ALLOWED_ORIGINS: ${DAUTH_ALLOWED_ORIGINS:-}
+      DATABASE_URL: ${DATABASE_URL:?请设置 DATABASE_URL}
+      REDIS_ADDR: ${REDIS_ADDR:?请设置 REDIS_ADDR，例如 redis:6379 或 host.docker.internal:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DAUTH_MASTER_KEY: ${DAUTH_MASTER_KEY:?请设置 DAUTH_MASTER_KEY}
+      DAUTH_INIT_ADMIN_PHONE: ${DAUTH_INIT_ADMIN_PHONE:-}
+      DAUTH_ALIYUN_ACCESS_KEY_ID: ${DAUTH_ALIYUN_ACCESS_KEY_ID:-}
+      DAUTH_ALIYUN_ACCESS_KEY_SECRET: ${DAUTH_ALIYUN_ACCESS_KEY_SECRET:-}
+      DAUTH_ALIYUN_SMS_SIGN_NAME: ${DAUTH_ALIYUN_SMS_SIGN_NAME:-}
+      DAUTH_OSS_CDN_BASE: ${DAUTH_OSS_CDN_BASE:-}
+      DAUTH_WECHAT_WEB_APP_ID: ${DAUTH_WECHAT_WEB_APP_ID:-}
+      DAUTH_WECHAT_WEB_APP_SECRET: ${DAUTH_WECHAT_WEB_APP_SECRET:-}
+      DAUTH_WECHAT_REDIRECT_URL: ${DAUTH_WECHAT_REDIRECT_URL:-}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${APP_PORT:-8680}:80"
+    volumes:
+      - app_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  app_data:

@@ -1,0 +1,83 @@
+# ============================================================
+# d-auth —— Portainer Stack
+#
+# 部署步骤：
+#   1. Stacks → Add stack → 名称填 d-auth
+#   2. 粘贴本文件
+#   3. 环境变量必填：POSTGRES_PASSWORD、DAUTH_MASTER_KEY
+#      可选：APP_PORT（默认 8680）、DOCKER_TAG、阿里云/微信相关
+#   4. Deploy the stack
+# ============================================================
+
+services:
+  app:
+    image: ${DOCKER_IMAGE:-jianboo/d-auth}:${DOCKER_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      HTTP_PORT: "8681"
+      DAUTH_PUBLIC_URL: ${DAUTH_PUBLIC_URL:-}
+      DAUTH_WEB_ORIGIN: ${DAUTH_WEB_ORIGIN:-}
+      DAUTH_JWT_ISSUER: ${DAUTH_JWT_ISSUER:-}
+      DAUTH_JWT_PRIVATE_KEY_PATH: /app/data/jwt-private.pem
+      DAUTH_COOKIE_DOMAIN: ${DAUTH_COOKIE_DOMAIN:-}
+      DAUTH_COOKIE_SECURE: ${DAUTH_COOKIE_SECURE:-true}
+      DAUTH_COOKIE_NAME: ${DAUTH_COOKIE_NAME:-__Secure-dauth_session}
+      DAUTH_ALLOWED_ORIGINS: ${DAUTH_ALLOWED_ORIGINS:-}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dauth}:${POSTGRES_PASSWORD:?请在 Portainer 环境变量面板设置 POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dauth}?sslmode=disable
+      REDIS_ADDR: redis:6379
+      DAUTH_MASTER_KEY: ${DAUTH_MASTER_KEY:?请在 Portainer 环境变量面板设置 DAUTH_MASTER_KEY}
+      DAUTH_INIT_ADMIN_PHONE: ${DAUTH_INIT_ADMIN_PHONE:-}
+      DAUTH_INIT_ADMIN_EMAIL: ${DAUTH_INIT_ADMIN_EMAIL:-}
+      DAUTH_ALIYUN_ACCESS_KEY_ID: ${DAUTH_ALIYUN_ACCESS_KEY_ID:-}
+      DAUTH_ALIYUN_ACCESS_KEY_SECRET: ${DAUTH_ALIYUN_ACCESS_KEY_SECRET:-}
+      DAUTH_ALIYUN_SMS_SIGN_NAME: ${DAUTH_ALIYUN_SMS_SIGN_NAME:-}
+      DAUTH_ALIYUN_SMS_TEMPLATE_LOGIN: ${DAUTH_ALIYUN_SMS_TEMPLATE_LOGIN:-}
+      DAUTH_ALIYUN_DM_ACCOUNT: ${DAUTH_ALIYUN_DM_ACCOUNT:-}
+      DAUTH_OSS_ENDPOINT: ${DAUTH_OSS_ENDPOINT:-}
+      DAUTH_OSS_BUCKET: ${DAUTH_OSS_BUCKET:-}
+      DAUTH_OSS_CDN_BASE: ${DAUTH_OSS_CDN_BASE:-}
+      DAUTH_WECHAT_WEB_APP_ID: ${DAUTH_WECHAT_WEB_APP_ID:-}
+      DAUTH_WECHAT_WEB_APP_SECRET: ${DAUTH_WECHAT_WEB_APP_SECRET:-}
+      DAUTH_WECHAT_REDIRECT_URL: ${DAUTH_WECHAT_REDIRECT_URL:-}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${APP_PORT:-8680}:80"
+    volumes:
+      - app_data:/app/data
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dauth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 Portainer 环境变量面板设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-dauth}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  app_data:

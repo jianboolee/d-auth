@@ -1,0 +1,7 @@
+node_modules
+.gocache
+.npm-cache
+bin
+tmp
+.env
+.env.*

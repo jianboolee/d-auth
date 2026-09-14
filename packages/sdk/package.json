@@ -1,0 +1,32 @@
+{
+  "name": "@donktech/d-auth-sdk",
+  "version": "0.1.0",
+  "description": "d-auth 账户服务客户端：登录态、Cookie / Bearer、用户自助与管理 API",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/jianboolee/d-auth.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/jianboolee/d-auth",
+  "license": "UNLICENSED",
+  "sideEffects": false
+}

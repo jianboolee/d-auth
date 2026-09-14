@@ -1,0 +1,26 @@
+.DS_Store
+.env
+.env.local
+*.log
+data/
+tmp/
+
+# Go
+api/bin/
+api/tmp/
+api/coverage.out
+api/vendor/
+
+# Node
+node_modules/
+web/dist/
+packages/admin/dist/
+*.tsbuildinfo
+
+# 部署密钥
+deploy/.env
+deploy/.env.docker
+
+# IDE
+.idea/
+.vscode/

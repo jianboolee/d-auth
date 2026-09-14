@@ -1,0 +1,6 @@
+# syntax=docker/dockerfile:1
+FROM golang:1.25-alpine
+RUN apk add --no-cache git
+ARG AIR_VERSION=v1.66.0
+RUN go install github.com/air-verse/air@${AIR_VERSION}
+WORKDIR /src

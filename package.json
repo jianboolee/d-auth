@@ -1,0 +1,17 @@
+{
+  "name": "d-auth",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/jianboolee/d-auth.git"
+  },
+  "workspaces": [
+    "web",
+    "packages/sdk",
+    "packages/admin"
+  ],
+  "scripts": {
+    "build:sdk": "npm run build -w @donktech/d-auth-sdk",
+    "build:web": "npm run build -w d-auth-web"
+  }
+}
