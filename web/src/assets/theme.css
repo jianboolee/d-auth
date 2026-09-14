@@ -1,14 +1,18 @@
 :root {
-  --dauth-bg: #f7f8fa;
-  --dauth-sidebar-bg: #f3f4f6;
+  --dauth-bg: #ffffff;
+  --dauth-sidebar-bg: #f7f7f8;
   --dauth-surface: #ffffff;
-  --dauth-border: #ececec;
-  --dauth-text: #1a1a1a;
-  --dauth-text-secondary: #6b6b6b;
-  --dauth-primary: #1a1a1a;
+  --dauth-border: #ececef;
+  --dauth-text: #18181b;
+  --dauth-text-secondary: #8a8a94;
+  --dauth-primary: #18181b;
   --dauth-primary-fg: #ffffff;
   --dauth-radius: 10px;
   --dauth-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  /* 侧栏交互态：用背景深浅区分，而非描边 */
+  --dauth-sidebar-hover: rgba(0, 0, 0, 0.045);
+  --dauth-sidebar-active: rgba(0, 0, 0, 0.07);
+  --dauth-sidebar-text: #3f3f46;
 }
 
 * {
@@ -72,4 +76,9 @@ body,
 
 .dauth-code-row .n-button {
   flex-shrink: 0;
+}
+
+/* 提示消息不显示图标（外观由 App.vue 的 Message 主题控制） */
+.n-message .n-message__icon {
+  display: none;
 }
