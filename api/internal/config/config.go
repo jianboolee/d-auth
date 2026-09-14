@@ -91,9 +91,9 @@ func Load() *Config {
 	dsn := firstNonEmpty(
 		env("DAUTH_POSTGRES_DSN", ""),
 		env("DATABASE_URL", ""),
-		"postgres://dauth:dauth@localhost:8683/dauth?sslmode=disable",
+		"postgres://dauth:dauth@localhost:5432/dauth?sslmode=disable",
 	)
-	redisAddr := firstNonEmpty(env("DAUTH_REDIS_ADDR", ""), env("REDIS_ADDR", ""), "localhost:8684")
+	redisAddr := firstNonEmpty(env("DAUTH_REDIS_ADDR", ""), env("REDIS_ADDR", ""), "localhost:6379")
 
 	// 通用密钥；短信、邮件、OSS 可用各自的 ACCESS_KEY 覆盖，未配置时回退到这里。
 	aliyunKeyID := env("DAUTH_ALIYUN_ACCESS_KEY_ID", "")

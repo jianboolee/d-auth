@@ -162,3 +162,19 @@ func TestAvatarURLNoSuffix(t *testing.T) {
 		t.Fatalf("unexpected url %q", got)
 	}
 }
+
+// 本地 Postgres / Redis 用默认端口，不再分配独立端口（8683/8684）。
+func TestDatabaseAndRedisDefaultsUseStandardPorts(t *testing.T) {
+	t.Setenv("DAUTH_POSTGRES_DSN", "")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DAUTH_REDIS_ADDR", "")
+	t.Setenv("REDIS_ADDR", "")
+
+	cfg := config.Load()
+	if got := cfg.PostgresDSN; !strings.Contains(got, "@localhost:5432/") {
+		t.Fatalf("default postgres dsn should use 5432, got %q", got)
+	}
+	if got := cfg.RedisAddr; got != "localhost:6379" {
+		t.Fatalf("default redis addr = %q, want localhost:6379", got)
+	}
+}

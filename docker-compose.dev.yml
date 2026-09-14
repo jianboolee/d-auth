@@ -20,9 +20,9 @@ services:
       - .env
     environment:
       HTTP_PORT: "8681"
-      # 容器内 localhost 不是宿主机；infra 映射在 8683/8684
-      DAUTH_POSTGRES_DSN: postgres://dauth:dauth@host.docker.internal:8683/dauth?sslmode=disable
-      DAUTH_REDIS_ADDR: host.docker.internal:8684
+      # 容器内 localhost 不是宿主机；infra 用默认端口 5432/6379
+      DAUTH_POSTGRES_DSN: postgres://dauth:dauth@host.docker.internal:5432/dauth?sslmode=disable
+      DAUTH_REDIS_ADDR: host.docker.internal:6379
       DAUTH_WEB_ORIGIN: http://localhost:${WEB_PORT:-8682}
       DAUTH_ALLOWED_ORIGINS: http://localhost:${WEB_PORT:-8682},http://127.0.0.1:${WEB_PORT:-8682}
     ports:

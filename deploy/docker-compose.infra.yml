@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: dauth
       POSTGRES_DB: dauth
     ports:
-      - "${PG_PORT:-8683}:5432"
+      - "${PG_PORT:-5432}:5432"
     volumes:
       - dauth-pg:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "${REDIS_PORT:-8684}:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s

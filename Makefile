@@ -5,7 +5,7 @@
 help:
 	@echo "d-auth 常用命令"
 	@echo ""
-	@echo "  make up             起本地 Postgres:$(PG_PORT) + Redis:$(REDIS_PORT)"
+	@echo "  make up             起本地 Postgres:$(PG_PORT) + Redis:$(REDIS_PORT)（默认端口）"
 	@echo "  make api            启动后端 :$(API_PORT)"
 	@echo "  make web            启动前端 :$(WEB_PORT)"
 	@echo "  make migrate        单独执行数据库迁移"
@@ -17,18 +17,17 @@ help:
 	@echo ""
 
 # ---------- 端口约定 ----------
-# 本项目独占 8680-8684，避免和 Vite 5173、常见 8080、d-specs 8400 段冲突。
+# 本项目独占 8680-8682，避免和 Vite 5173、常见 8080、d-specs 8400 段冲突。
 #   8680  生产对外（宿主机 -> 容器 80）
 #   8681  API（dev 宿主机；生产仅容器内）
 #   8682  Web vite
-#   8683  本地 Postgres（make up）
-#   8684  本地 Redis（make up）
+# Postgres / Redis 不再单独占端口，直接用默认 5432 / 6379（make up 也映射到默认端口）。
 # 需要临时错开时用 make ... API_PORT=... WEB_PORT=... APP_PORT=... 覆盖。
 API_PORT ?= 8681
 WEB_PORT ?= 8682
 APP_PORT ?= 8680
-PG_PORT ?= 8683
-REDIS_PORT ?= 8684
+PG_PORT ?= 5432
+REDIS_PORT ?= 6379
 
 DOCKER_IMAGE ?= jianboo/d-auth
 DOCKER_TAG ?= latest

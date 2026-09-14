@@ -4,15 +4,15 @@
 
 控制台、HTTP API、JWKS **共用一个对外入口**。其它项目不要直连容器内的 8681。
 
-## 端口（独占 8680–8684）
+## 端口（独占 8680–8682）
 
 | 端口 | 用途 |
 | --- | --- |
 | **8680** | 生产对外：nginx 托管前端，`/v1` `/health` `/static` 反代 API |
 | 8681 | API。本地 `make api`；生产只在容器回环 |
 | 8682 | 本地 Vite |
-| 8683 | 本地 Postgres（`make up`） |
-| 8684 | 本地 Redis（`make up`） |
+
+Postgres / Redis 不再单独占端口，用默认的 5432 / 6379。
 
 刻意避开 5173、8080、以及 d-specs 的 8400 段。冲突时用 `make api API_PORT=8691` 这类变量覆盖。
 
@@ -20,7 +20,7 @@
 
 ```bash
 cp .env.example .env
-make up          # Postgres :8683 + Redis :8684
+make up          # Postgres :5432 + Redis :6379（默认端口）
 make api         # http://localhost:8681（启动时自动 migrate）
 make web         # http://localhost:8682 （/v1 代理到 8681）
 ```
