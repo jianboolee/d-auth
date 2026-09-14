@@ -323,18 +323,6 @@ function bindThirdParty(label: string) {
   message.info(`暂不支持在账号内绑定${label}，请使用${label}登录后再操作`);
 }
 
-// 临时：预览确认弹窗样式，确认后删除此按钮与函数
-function previewDialog() {
-  confirm({
-    title: "确认更换手机号",
-    content: "手机号将变更为 139****1111，之后可用它接收验证码登录。",
-    positiveText: "确认",
-    onPositiveClick: () => {
-      message.success("已确认（仅预览，未执行任何操作）");
-    },
-  });
-}
-
 onMounted(() => {
   window.addEventListener("resize", onResize);
   loadIdentities();
@@ -349,8 +337,6 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
         <h1>安全</h1>
         <p>管理你的登录密码与账号凭据</p>
       </div>
-      <!-- 临时：预览确认弹窗样式，确认后删除 -->
-      <n-button size="small" @click="previewDialog">预览弹窗</n-button>
     </header>
 
     <div class="list">
