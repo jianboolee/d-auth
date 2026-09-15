@@ -163,6 +163,10 @@ export declare class DAuthClient {
         identities: Identity[];
         sessions: Session[];
     }>;
+    /**
+     * 后台建号接口。手机号走后台宽松校验，允许 120 开头的虚拟号等非真实号段
+     * （登录/注册仍然只认真实号码）。
+     */
     adminCreateUser(body: {
         nickname?: string;
         phone?: string;
@@ -175,6 +179,13 @@ export declare class DAuthClient {
         status?: string;
         roles?: string[];
     }): Promise<User>;
+    /**
+     * 生成一个虚拟手机号（120 开头，11 位）用于后台建号，返回 `{ phone }`。
+     * 只返回候选值、不写库；该号码不能用于登录注册与收短信。
+     */
+    adminGenerateVirtualPhone(): Promise<{
+        phone: string;
+    }>;
     /** 直接改绑用户手机号（管理员操作，不校验验证码）。手机号唯一，冲突返回 PHONE_TAKEN。 */
     adminSetUserPhone(id: string, phone: string): Promise<User>;
     /** 直接改绑用户邮箱（管理员操作，不校验验证码）。邮箱唯一，冲突返回 EMAIL_TAKEN。 */

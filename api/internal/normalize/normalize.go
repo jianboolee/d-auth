@@ -31,6 +31,39 @@ func Phone(raw string) (string, bool) {
 	return "", false
 }
 
+// AdminPhone 是后台建号／改绑手机号使用的宽松校验，与面向用户的 Phone 刻意分开：
+// 后台允许给运营、测试账号分配一个不属于任何真实号段的占位号码（如 120 开头的
+// 虚拟号），这类号码通过 Phone 会被拒，但后台需要能存下来。
+//
+// 登录、注册、自助改绑仍然走 Phone——只有后台的建号与改绑两个入口放宽，
+// 虚拟号因此不会变成立即可以收码登录的凭据。
+//
+// 规范化规则：
+//   - 先按 Phone 处理，真实号码的写法（本地 11 位 / 带 86 / + 国际号）保持原来结果；
+//   - 其余纯数字 6-15 位原样保留，不猜国码——120 开头的虚拟号原样存，避免
+//     给它硬套一个 +86 后与用户可见值不一致。
+func AdminPhone(raw string) (string, bool) {
+	s := strings.TrimSpace(raw)
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "-", "")
+	if p, ok := Phone(s); ok {
+		return p, true
+	}
+	if len(s) >= 6 && len(s) <= 15 && isASCIIDigits(s) {
+		return s, true
+	}
+	return "", false
+}
+
+func isASCIIDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
 func Email(raw string) (string, bool) {
 	s := strings.ToLower(strings.TrimSpace(raw))
 	if s == "" || !strings.Contains(s, "@") || strings.Contains(s, " ") {

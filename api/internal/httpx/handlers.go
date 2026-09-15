@@ -749,6 +749,17 @@ func (h *Handlers) AdminSetEmail(c *gin.Context) {
 	response.OK(c, u)
 }
 
+// AdminGeneratePhone 生成一个虚拟手机号（120 开头，11 位），供后台建号表单填入。
+// 只生成候选值，不写库；真正入库时仍会在 CreateUser 里再校验一次唯一性。
+func (h *Handlers) AdminGeneratePhone(c *gin.Context) {
+	phone, err := h.Admin.GenerateVirtualPhone()
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"phone": phone})
+}
+
 type resetPassReq struct {
 	Password string `json:"password"`
 }

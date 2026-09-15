@@ -18,7 +18,7 @@ import type { Identity, Session, User } from "@donktech/d-auth-sdk";
 import { computed } from "vue";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
-import { normalizePhoneInput, phoneLooksValid } from "../phone";
+import { adminPhoneLooksValid, normalizePhoneInput } from "../phone";
 import { useAuthSession } from "../session";
 import { useConfirm } from "../confirm";
 import { errMessage, identityLabel, roleLabel, statusLabel } from "../labels";
@@ -66,8 +66,9 @@ async function save() {
   const nextEmail = email.value.trim();
   const phoneChanged = nextPhone !== (user.value.phone ?? "");
   const emailChanged = nextEmail !== (user.value.email ?? "");
-  if (phoneChanged && !phoneLooksValid(nextPhone)) {
-    message.warning("手机号格式不正确，请填 13800138000 或 +8613800138000");
+  // 后台改绑走宽松校验，与后端 normalize.AdminPhone 对应：虚拟号（120 开头）也能存
+  if (phoneChanged && !adminPhoneLooksValid(nextPhone)) {
+    message.warning("手机号格式不正确，请填真实号码、+8613800138000 或 120 开头的虚拟号");
     return;
   }
   try {
@@ -159,7 +160,10 @@ onMounted(load);
             <n-select v-model:value="roles" multiple :options="roleOptions" />
           </n-form-item>
         </n-form>
-        <p class="hint">手机号与邮箱全局唯一，管理员可直接改绑（无需验证码）。</p>
+        <p class="hint">
+          手机号与邮箱全局唯一，管理员可直接改绑（无需验证码）。手机号可用 120 开头的虚拟号，
+          这类号码不能登录、不能收短信。
+        </p>
         <n-space>
           <n-button type="primary" @click="save">保存</n-button>
           <n-button v-if="user.status === 'active'" @click="setStatus('disabled')">停用</n-button>

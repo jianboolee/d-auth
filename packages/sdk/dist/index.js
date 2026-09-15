@@ -335,11 +335,22 @@ export class DAuthClient {
     adminUser(id) {
         return this.request(`/v1/admin/users/${id}`);
     }
+    /**
+     * 后台建号接口。手机号走后台宽松校验，允许 120 开头的虚拟号等非真实号段
+     * （登录/注册仍然只认真实号码）。
+     */
     adminCreateUser(body) {
         return this.request("/v1/admin/users", { method: "POST", body: JSON.stringify(body) });
     }
     adminPatchUser(id, body) {
         return this.request(`/v1/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+    }
+    /**
+     * 生成一个虚拟手机号（120 开头，11 位）用于后台建号，返回 `{ phone }`。
+     * 只返回候选值、不写库；该号码不能用于登录注册与收短信。
+     */
+    adminGenerateVirtualPhone() {
+        return this.request("/v1/admin/virtual-phone", { method: "POST" });
     }
     /** 直接改绑用户手机号（管理员操作，不校验验证码）。手机号唯一，冲突返回 PHONE_TAKEN。 */
     adminSetUserPhone(id, phone) {

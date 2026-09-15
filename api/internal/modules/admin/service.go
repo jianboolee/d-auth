@@ -2,7 +2,10 @@ package admin
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
+	"fmt"
+	"math/big"
 	"regexp"
 	"strings"
 	"time"
@@ -133,7 +136,8 @@ func (s *Service) CreateUser(in CreateUserInput) (dto.User, error) {
 		}
 		now := time.Now()
 		if in.Phone != "" {
-			phone, ok := normalize.Phone(in.Phone)
+			// 后台建号走 AdminPhone：允许 120 开头的虚拟号等非真实号段。
+			phone, ok := normalize.AdminPhone(in.Phone)
 			if !ok {
 				return apperr.New(apperr.ErrInvalidArgument, "INVALID_PHONE", "手机号不正确")
 			}
@@ -213,7 +217,8 @@ func (s *Service) SetUserIdentity(id uuid.UUID, typ, raw string) (dto.User, erro
 	)
 	switch typ {
 	case models.IdentityPhone:
-		identifier, ok = normalize.Phone(raw)
+		// 与 CreateUser 一致：后台改绑同样允许虚拟号等非真实号段。
+		identifier, ok = normalize.AdminPhone(raw)
 		if !ok {
 			return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_PHONE", "手机号不正确")
 		}
@@ -249,6 +254,47 @@ func (s *Service) SetUserIdentity(id uuid.UUID, typ, raw string) (dto.User, erro
 	s.invalidate(id)
 	u, _, _, err := s.GetUser(id)
 	return u, err
+}
+
+// 虚拟号形态：120 开头 + 8 位随机数字，共 11 位。120 不是真实号段，
+// normalize.Phone 会拒绝它，因此只可能出现在后台建号／改绑的宽松校验下。
+const (
+	virtualPhonePrefix    = "120"
+	virtualPhoneRandomLen = 8
+	// 抽到已占用号码就重抽的次数上限。号码空间 1e8，正常一次就能命中。
+	virtualPhoneAttempts = 8
+)
+
+// newVirtualPhone 生成一个 120 开头的 11 位虚拟号，不做唯一性检查。
+func newVirtualPhone() (string, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(100000000))
+	if err != nil {
+		return "", err
+	}
+	return virtualPhonePrefix + fmt.Sprintf("%0*d", virtualPhoneRandomLen, n.Int64()), nil
+}
+
+// GenerateVirtualPhone 生成一个未被占用的虚拟手机号，供后台建号表单自动填入。
+//
+// 号码本身不具备任何真实性：它只是一个占位标识，登录、注册、短信发送路径的
+// 严格校验不会接受它。函数不写库——先查 auth_identities 避开已占用的号码，
+// 真正的唯一性仍由 (type, identifier) 唯一索引在写入时兜底。
+func (s *Service) GenerateVirtualPhone() (string, error) {
+	for i := 0; i < virtualPhoneAttempts; i++ {
+		phone, err := newVirtualPhone()
+		if err != nil {
+			return "", err
+		}
+		// CreateUser/SetUserIdentity 用 AdminPhone 规范化，虚拟号原样入库，
+		// 所以这里按原值比对即可。
+		switch _, err := s.store.FindIdentity(models.IdentityPhone, phone); {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return phone, nil
+		case err != nil:
+			return "", err
+		}
+	}
+	return "", apperr.New(apperr.ErrConflict, "PHONE_GENERATE_FAILED", "生成虚拟号失败，请重试")
 }
 
 func (s *Service) ResetPassword(id uuid.UUID, pass string) error {

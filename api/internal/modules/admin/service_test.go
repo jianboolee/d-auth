@@ -1,16 +1,20 @@
 package admin
 
 import (
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/infra/database"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/store"
+	"github.com/jianboolee/d-auth/internal/normalize"
 )
 
 // 需要真实 postgres：通过 PG_TEST_DSN 提供连接串，否则跳过。
@@ -251,6 +255,116 @@ func TestCreateClientWithoutOptionalFields(t *testing.T) {
 			cl.AllowedOrigins, cl.LoginMethods)
 	}
 	t.Cleanup(func() { _ = svc.DeleteClient(cl.ID) })
+}
+
+// virtualPhoneSeq 保证同一进程内每次调用都拿到不同的后缀，避免仅靠时间戳时的偶然重复。
+var virtualPhoneSeq atomic.Int64
+
+// uniqueVirtualPhone 造一个 120 开头的虚拟号，避免同一库上重复跑时撞唯一索引。
+// 必须全是数字：AdminPhone 对非真实号段只接受纯数字，用 uuid 片段会带上十六进制字母。
+func uniqueVirtualPhone() string {
+	n := time.Now().UnixNano() + virtualPhoneSeq.Add(1)
+	return "120" + fmt.Sprintf("%08d", n%100000000)
+}
+
+// 后台建号允许 120 开头的虚拟号：通过 Phone 会被拒，走 CreateUser 应该能建出来，
+// 且标识按原值存下来（不被套上 +86）。
+func TestCreateUserWithVirtualPhone(t *testing.T) {
+	svc, st := newTestService(t)
+	phone := uniqueVirtualPhone()
+	// 先用严格校验确认它确实不是「真实号码」——这是整个改动的前提。
+	if _, ok := normalize.Phone(phone); ok {
+		t.Fatalf("test phone %q unexpectedly passes strict normalize.Phone", phone)
+	}
+
+	u, err := svc.CreateUser(CreateUserInput{Nickname: "虚拟号用户", Phone: phone})
+	if err != nil {
+		t.Fatalf("create user with virtual phone: %v", err)
+	}
+	if u.Phone != phone {
+		t.Errorf("stored phone = %q, want %q (原值保留)", u.Phone, phone)
+	}
+
+	// 登录标识里的值应可直接反查，且严格校验仍然拒绝用它登录。
+	if _, err := st.FindIdentity(models.IdentityPhone, phone); err != nil {
+		t.Errorf("virtual phone identity not persisted: %v", err)
+	}
+	t.Cleanup(func() {
+		id, perr := idgen.ParseUserID(u.ID)
+		if perr != nil {
+			return
+		}
+		// auth_identities.user_id 没有级联，先删标识再删用户
+		st.DB.Where("user_id = ?", id).Delete(&models.Identity{})
+		st.DB.Where("user_id = ?", id).Delete(&models.UserRole{})
+		st.DB.Where("id = ?", id).Delete(&models.User{})
+	})
+}
+
+// 虚拟号同样是唯一标识：重复建号要报 PHONE_TAKEN，而不是撞唯一索引变 500。
+func TestCreateUserRejectsDuplicateVirtualPhone(t *testing.T) {
+	svc, st := newTestService(t)
+	phone := uniqueVirtualPhone()
+
+	first, err := svc.CreateUser(CreateUserInput{Nickname: "先占用", Phone: phone})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	t.Cleanup(func() {
+		id, perr := idgen.ParseUserID(first.ID)
+		if perr != nil {
+			return
+		}
+		st.DB.Where("user_id = ?", id).Delete(&models.Identity{})
+		st.DB.Where("user_id = ?", id).Delete(&models.UserRole{})
+		st.DB.Where("id = ?", id).Delete(&models.User{})
+	})
+
+	_, err = svc.CreateUser(CreateUserInput{Nickname: "重复占用", Phone: phone})
+	if got := codeOf(err); got != "PHONE_TAKEN" {
+		t.Fatalf("want PHONE_TAKEN, got %q (err=%v)", got, err)
+	}
+}
+
+// 生成器要给出 120 开头的 11 位号码，且不能返回已被占用的号。
+func TestGenerateVirtualPhone(t *testing.T) {
+	svc, st := newTestService(t)
+
+	phone, err := svc.GenerateVirtualPhone()
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(phone) != 11 || phone[:3] != "120" {
+		t.Fatalf("generated %q, want 11 digits starting with 120", phone)
+	}
+	if _, ok := normalize.AdminPhone(phone); !ok {
+		t.Errorf("generated %q is not accepted by normalize.AdminPhone", phone)
+	}
+
+	// 把这个号占用掉，再生成若干次都不应该撞上它。
+	u, err := svc.CreateUser(CreateUserInput{Nickname: "占位", Phone: phone})
+	if err != nil {
+		t.Fatalf("occupy generated phone: %v", err)
+	}
+	t.Cleanup(func() {
+		id, perr := idgen.ParseUserID(u.ID)
+		if perr != nil {
+			return
+		}
+		st.DB.Where("user_id = ?", id).Delete(&models.Identity{})
+		st.DB.Where("user_id = ?", id).Delete(&models.UserRole{})
+		st.DB.Where("id = ?", id).Delete(&models.User{})
+	})
+
+	for i := 0; i < 20; i++ {
+		next, err := svc.GenerateVirtualPhone()
+		if err != nil {
+			t.Fatalf("generate #%d: %v", i, err)
+		}
+		if next == phone {
+			t.Fatalf("generator returned the occupied phone %q", phone)
+		}
+	}
 }
 
 // 删除不存在的应用应报 NotFound，而不是静默成功。
