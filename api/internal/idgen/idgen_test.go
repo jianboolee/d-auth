@@ -1,7 +1,7 @@
 package idgen
 
 import (
-	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -17,13 +17,19 @@ func TestNewIsV7(t *testing.T) {
 	}
 }
 
-var userIDPattern = regexp.MustCompile(`^[0-9a-z]{16}$`)
-
-func TestNewUserIDIs16LowerAlnum(t *testing.T) {
+// 用户 ID 现在与其它实体一致：标准 uuid v7。
+func TestNewUserIDIsUUIDv7(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		got := FormatUserID(NewUserID())
-		if !userIDPattern.MatchString(got) {
-			t.Fatalf("user id %q is not 16 chars of [0-9a-z]", got)
+		raw := NewUserID()
+		if raw.Version() != 7 {
+			t.Fatalf("got version %d want 7", raw.Version())
+		}
+		got := FormatUserID(raw)
+		if _, err := uuid.Parse(got); err != nil {
+			t.Fatalf("FormatUserID returned %q, not a parseable uuid: %v", got, err)
+		}
+		if got != raw.String() {
+			t.Fatalf("FormatUserID should equal the uuid rendering: %q != %q", got, raw.String())
 		}
 	}
 }
@@ -39,11 +45,11 @@ func TestNewUserIDUnique(t *testing.T) {
 	}
 }
 
+// uuid v7 的字符串序与生成顺序一致（前 48 位是毫秒时间戳）。
 func TestNewUserIDTimeOrdered(t *testing.T) {
 	prev := FormatUserID(NewUserID())
 	for i := 0; i < 1000; i++ {
 		cur := FormatUserID(NewUserID())
-		// 字典序与生成顺序一致：前缀是毫秒时间戳的 base36。
 		if cur < prev {
 			t.Fatalf("id %q out of order after %q", cur, prev)
 		}
@@ -63,36 +69,61 @@ func TestFormatParseUserIDRoundTrip(t *testing.T) {
 	}
 }
 
-// 历史 uuid v7 用户不应被误判为打包格式：FormatUserID 必须原样返回 UUID 字符串，
-// ParseUserID 也要能把它解析回来。
-func TestLegacyUUIDStaysUUID(t *testing.T) {
+// 历史的 16 位打包串必须仍然能解析出来，否则老链接与老 JWT 的 sub 会失效。
+// 库里存量行就存着那种字节，这条守住「只读兼容」。
+func TestParseUserIDAcceptsLegacyPackedString(t *testing.T) {
+	// "00tld2hok0w6f2f5" 是 dev 库里一条真实存量用户的对外旧形式，
+	// 其字节渲染为 30304d45-3d32-4148-4430-50363f323f35。
+	const legacyDisplay = "00tld2hok0w6f2f5"
+	const storedBytes = "30304d45-3d32-4148-4430-50363f323f35"
+
+	u, err := ParseUserID(legacyDisplay)
+	if err != nil {
+		t.Fatalf("ParseUserID(%q): %v", legacyDisplay, err)
+	}
+	if got := u.String(); got != storedBytes {
+		t.Fatalf("legacy display decoded to %s, want %s", got, storedBytes)
+	}
+
+	// 存量值现在按 uuid 渲染对外输出——即库里看到的那串，两者从此一致。
+	if got := FormatUserID(u); got != storedBytes {
+		t.Fatalf("FormatUserID(legacy) = %s, want the stored uuid rendering %s", got, storedBytes)
+	}
+
+	// 同一个 ID 的两种写法应解析到同一个 uuid。
+	fromUUID, err := ParseUserID(storedBytes)
+	if err != nil {
+		t.Fatalf("ParseUserID(%q): %v", storedBytes, err)
+	}
+	if fromUUID != u {
+		t.Fatalf("two spellings of one id parsed differently: %s != %s", fromUUID, u)
+	}
+}
+
+// 16 位串仍然会被当作打包形式解析（这是兼容路径的代价，不是缺陷），
+// 所以任意 16 位小写字母数字串都会得到一个 uuid 而不是报错。
+func TestParseUserIDTreats16CharsAsPacked(t *testing.T) {
+	u, err := ParseUserID(strings.Repeat("0", 16))
+	if err != nil {
+		t.Fatalf("16-char input should parse as a legacy packed id: %v", err)
+	}
+	if u.String() != "30303030-3030-3030-3030-303030303030" {
+		t.Fatalf("unexpected decode: %s", u)
+	}
+}
+
+func TestLegacyUUIDRoundTrip(t *testing.T) {
 	legacy := New()
 	want := legacy.String()
 	if got := FormatUserID(legacy); got != want {
-		t.Fatalf("legacy id formatted to %q, want %q", got, want)
+		t.Fatalf("FormatUserID = %q, want %q", got, want)
 	}
 	back, err := ParseUserID(want)
 	if err != nil {
 		t.Fatalf("ParseUserID(%q): %v", want, err)
 	}
 	if back != legacy {
-		t.Fatalf("legacy round trip mismatch: %x != %x", back, legacy)
-	}
-}
-
-// 区分打包串与真实 UUID 的依据是第 7 个字节：打包串映射到 0x30..0x53，
-// 而任何标准 UUID（v4/v7 等）的第 8 个字节带 variant 位，恒为 0x80..0xbf。
-// 这个测试守住该前提，避免以后改动字符基址时把真实 UUID 误判成打包串。
-func TestStandardUUIDIsNeverPacked(t *testing.T) {
-	for i := 0; i < 1000; i++ {
-		v4 := uuid.New()
-		if got := FormatUserID(v4); got != v4.String() {
-			t.Fatalf("v4 %s was misformatted to %q", v4, got)
-		}
-		v7 := New()
-		if got := FormatUserID(v7); got != v7.String() {
-			t.Fatalf("v7 %s was misformatted to %q", v7, got)
-		}
+		t.Fatalf("round trip mismatch: %x != %x", back, legacy)
 	}
 }
 

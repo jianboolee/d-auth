@@ -1,39 +1,32 @@
+// Package idgen 负责生成与解析各类 ID。
+//
+// 用户 ID 与其它实体一致，都是 uuid v7（按时间有序）。历史上有过一版 xid 风格
+// 的实验：把 16 位 base36 串按「一个字符一个字节」塞进 uuid 列（每字节落在
+// 0x30..0x53）。列类型当时就是 uuid，所以以十六进制加连字符渲染出来，看起来
+// 像个 UUID，但并不是——对外接口则解包回 16 位串输出。
+//
+// 结果是同一个用户 ID 在数据库里和接口里长得完全不同，排查问题时对不上。现在
+// 统一为 uuid：库里怎么渲染，对外就怎么给。
+//
+// 存量数据无需迁移：那些行存的仍是原样 16 个字节，只是显示方式变了。为了不让
+// 老链接与老 JWT 失效，ParseUserID 仍然接受旧的 16 位打包串——只读兼容，新的
+// ID 永远不会再产出这种形式。
 package idgen
 
 import (
-	"crypto/rand"
 	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/google/uuid"
 )
 
-// 用户 ID 采用 xid 风格：16 位、仅数字与小写字母、按时间有序。
-// 组织方式为「8 位秒级时间戳 + 8 位进程内序号」：固定宽度的 base36 时间前缀
-// 让整体按时间递增，同一秒内再由进程内单调递增的序号保证唯一。字符集为
-// base36（0-9a-z），因此字符串字典序与生成顺序一致（跨进程不保证同秒内有序）。
+// 以下常量只用于解析历史的 16 位打包串（见 ParseUserID），生成路径已不再使用。
 const (
 	userIDLen      = 16
-	userIDTimeLen  = 8
 	userIDAlphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+	userIDByteBase = 0x30
 )
 
-// 用户 ID 以「一个字符一个字节」的方式放进 uuid.UUID 的 16 字节里：字符按其在
-// base36 字母表里的下标映射到 0x30..0x53。这样每个字节都落在这个区间内（高四位
-// 只会是 3/4/5）。而任何标准 UUID 的第 9 个字节（下标 8）都带 RFC 4122 variant
-// 位，恒为 0x80..0xbf（高两位为 10），一定超出该区间。所以「16 个字节全落在
-// 0x30..0x53」可以无歧义地把打包的用户 ID 与历史 uuid v7 用户 ID 区分开
-// （见 isPackedUserID），无需依赖版本号。
-const userIDByteBase = 0x30
-
-var (
-	userIDSeq atomic.Uint32
-	userIDTag = randomTag()
-)
-
-// New 为会话、身份、客户端、API Key 等实体生成 UUID v7。
-// 用户 ID 请使用 NewUserID。
+// New 生成 uuid v7。按时间有序，字符串序与创建顺序一致。
 func New() uuid.UUID {
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -46,23 +39,30 @@ func NewString() string {
 	return New().String()
 }
 
-// NewUserID 生成一个新的用户 ID。返回值仍是 uuid.UUID（列类型不变），
-// 但其中打包的是 16 位小写字母数字串；对外用 FormatUserID 还原成 16 位字符串。
+// NewUserID 生成一个新的用户 ID，即 uuid v7，与其它实体一致。
+//
+// 保留这个函数而不是让调用方直接用 New，是为了留下「用户 ID」这个语义标记：
+// 曾经它和一个通用 UUID 不是一回事。
 func NewUserID() uuid.UUID {
-	u, _ := packUserID(newUserIDString())
-	return u
+	return New()
 }
 
-// FormatUserID 把用户 ID 转成对外形式：新用户为 16 位小写字母数字串，
-// 历史 uuid v7 用户保持 36 位 UUID 字符串，无需迁移。
+// FormatUserID 把用户 ID 转成对外形式。
+//
+// 恒为 uuid 字符串（带连字符），与数据库 uuid 列的渲染一致——这正是这次改动的
+// 目的：不再出现「库里一个样、界面另一个样」。
+//
+// 保留这个函数而不是让调用方直接用 u.String()：它是所有对外输出的唯一接缝，
+// 命名本身就说明了这里是用户 ID 的 API 边界，将来若要再调整对外格式只会有一处。
 func FormatUserID(u uuid.UUID) string {
-	if isPackedUserID(u) {
-		return unpackUserID(u)
-	}
 	return u.String()
 }
 
-// ParseUserID 解析对外传入的用户 ID，同时兼容 16 位新串与历史 UUID 字符串。
+// ParseUserID 解析对外传入的用户 ID。
+//
+// 接受两种形式：标准 uuid 字符串，以及历史的 16 位 base36 打包串。
+// 后者是只读兼容——库里存量行仍然存着那种字节，老书签和老 JWT 的 sub 因此不会
+// 失效；但生成侧已经不再产出这种形式。
 func ParseUserID(s string) (uuid.UUID, error) {
 	s = strings.TrimSpace(s)
 	if u, ok := packUserID(s); ok {
@@ -71,23 +71,8 @@ func ParseUserID(s string) (uuid.UUID, error) {
 	return uuid.Parse(s)
 }
 
-func newUserIDString() string {
-	sec := uint64(time.Now().Unix())
-	// 8 位 base36 可表达 36^8-1 ≈ 2.8e12 秒，约 8.9 万年，不会用完。
-	// 低 41 位：24 位进程随机标记（重启后换一批，降低跨进程碰撞）+ 17 位进程内序号。
-	seed := (uint64(userIDTag)&0xFFFFFF)<<17 | uint64(userIDSeq.Add(1)&0x1FFFF)
-	return encodeBase36(sec, userIDTimeLen) + encodeBase36(seed, userIDLen-userIDTimeLen)
-}
-
-func encodeBase36(v uint64, width int) string {
-	buf := make([]byte, width)
-	for i := width - 1; i >= 0; i-- {
-		buf[i] = userIDAlphabet[v%36]
-		v /= 36
-	}
-	return string(buf)
-}
-
+// packUserID 把历史的 16 位 base36 串还原成它所在的 16 个字节
+// （每字节 = 0x30 + 该字符在字母表里的下标）。仅用于读取存量数据。
 func packUserID(s string) (uuid.UUID, bool) {
 	if len(s) != userIDLen {
 		return uuid.Nil, false
@@ -101,29 +86,4 @@ func packUserID(s string) (uuid.UUID, bool) {
 		u[i] = byte(userIDByteBase + idx)
 	}
 	return u, true
-}
-
-func unpackUserID(u uuid.UUID) string {
-	buf := make([]byte, userIDLen)
-	for i := 0; i < userIDLen; i++ {
-		buf[i] = userIDAlphabet[u[i]-userIDByteBase]
-	}
-	return string(buf)
-}
-
-func isPackedUserID(u uuid.UUID) bool {
-	for _, b := range u {
-		if b < userIDByteBase || b > userIDByteBase+byte(len(userIDAlphabet)-1) {
-			return false
-		}
-	}
-	return true
-}
-
-func randomTag() uint32 {
-	var b [3]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return uint32(time.Now().UnixNano()) & 0xFFFFFF
-	}
-	return uint32(b[0])<<16 | uint32(b[1])<<8 | uint32(b[2])
 }

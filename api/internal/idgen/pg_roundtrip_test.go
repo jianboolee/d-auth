@@ -10,8 +10,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// 验证打包后的用户 ID 能原样通过 Postgres 的 uuid 列往返，且新旧两种 id
-// 可共存于同一列。需要本地 postgres，通过 PG_TEST_DSN 提供连接串，否则跳过。
+// 验证用户 ID 能原样通过 Postgres 的 uuid 列往返，且新 ID 与存量的打包 ID
+// 可共存于同一列（存量行不会被迁移，必须继续读得出来）。
+// 需要本地 postgres，通过 PG_TEST_DSN 提供连接串，否则跳过。
 type row struct {
 	ID   uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Name string

@@ -664,7 +664,7 @@ func (h *Handlers) AdminCreateUser(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	// dto 对外给的是 16 位串，审计表里仍存 uuid 字节，这里还原一次。
+	// dto 给的是字符串形式的用户 ID，审计表列是 uuid，这里转回字节。
 	if target, perr := idgen.ParseUserID(u.ID); perr == nil {
 		h.audit(c, "user.create", &target, nil)
 	}

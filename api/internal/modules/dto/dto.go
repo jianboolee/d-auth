@@ -13,7 +13,7 @@ import (
 // HasPhone 表示是否已绑定手机号：手机号是主要登录能力，前端据此决定是否
 // 把用户引导到绑定手机号页。
 type User struct {
-	// 新用户为 16 位小写字母数字串，历史用户为 uuid v7 字符串。
+	// uuid 字符串，与数据库 uuid 列的渲染一致。
 	ID          string     `json:"id"`
 	Nickname    string     `json:"nickname"`
 	AvatarURL   string     `json:"avatar_url"`
@@ -76,7 +76,7 @@ func Masked(u User) User {
 	return u
 }
 
-// Identity 对外暴露的绑定身份。user_id 转成对外的用户 ID 形式（新用户 16 位串）。
+// Identity 对外暴露的绑定身份。user_id 转成对外的用户 ID 形式（uuid 字符串）。
 type Identity struct {
 	ID         uuid.UUID      `json:"id"`
 	UserID     string         `json:"user_id"`
@@ -129,8 +129,7 @@ func FromIdentitiesMasked(list []models.Identity) []Identity {
 	return out
 }
 
-// AuditLog 对外暴露审计记录。actor/target 是用户 ID，转成对外的 16 位串形式；
-// api_key_id 属于 API Key，保持 uuid 字符串。
+// AuditLog 对外暴露审计记录。actor/target 是用户 ID，同样用 uuid 字符串形式。
 type AuditLog struct {
 	ID           uuid.UUID  `json:"id"`
 	ActorUserID  *string    `json:"actor_user_id"`

@@ -109,7 +109,8 @@ func (m *Manager) Alg() string { return m.alg }
 func (m *Manager) Sign(userID, sessionID, clientID uuid.UUID, roles []string) (string, string, error) {
 	jti := uuid.NewString()
 	now := time.Now()
-	// sub 用对外的用户 ID 形式：新用户是 16 位串，历史用户是 uuid 字符串。
+	// sub 是 uuid 字符串形式的用户 ID。ParseUserID 同时也认存量的 16 位打包串，
+	// 所以格式统一后已签发的 token 不会失效。
 	claims := Claims{
 		Roles: roles,
 		RegisteredClaims: jwt.RegisteredClaims{

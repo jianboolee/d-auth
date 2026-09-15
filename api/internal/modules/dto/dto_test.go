@@ -83,13 +83,13 @@ func TestFromUserEmptyAvatarKeyWithRealConfig(t *testing.T) {
 	}
 }
 
-// 新用户的 ID 对外应是 16 位串；历史 uuid 用户保持 uuid 字符串。
+// 对外的用户 ID 一律是 uuid 字符串，与数据库 uuid 列的渲染一致。
 func TestFromUserExposesUserIDForms(t *testing.T) {
-	packed := idgen.NewUserID()
-	newUser := dto.FromUser(&models.User{ID: packed}, nil, nil, func(string) string { return "" })
-	want := idgen.FormatUserID(packed)
-	if newUser.ID != want || len(newUser.ID) != 16 {
-		t.Fatalf("new user id = %q, want 16-char %q", newUser.ID, want)
+	fresh := idgen.NewUserID()
+	newUser := dto.FromUser(&models.User{ID: fresh}, nil, nil, func(string) string { return "" })
+	want := idgen.FormatUserID(fresh)
+	if newUser.ID != want || newUser.ID != fresh.String() {
+		t.Fatalf("new user id = %q, want uuid %q", newUser.ID, fresh.String())
 	}
 
 	legacy := idgen.New()
@@ -99,7 +99,21 @@ func TestFromUserExposesUserIDForms(t *testing.T) {
 	}
 }
 
-// identity 与审计日志里的用户 ID 也要用对外的 16 位串形式。
+// 存量的 xid 行（16 个字节全在 0x30..0x53）对外也要按 uuid 渲染输出，
+// 也就是数据库里看到的那串——这正是本次改动要消除的“库里与界面不一致”。
+func TestFromUserRendersPackedRowAsUUID(t *testing.T) {
+	packed, err := idgen.ParseUserID("00tld2hok0w6f2f5")
+	if err != nil {
+		t.Fatalf("parse legacy id: %v", err)
+	}
+	out := dto.FromUser(&models.User{ID: packed}, nil, nil, func(string) string { return "" })
+	const stored = "30304d45-3d32-4148-4430-50363f323f35"
+	if out.ID != stored {
+		t.Fatalf("packed row exposed as %q, want %q (what the uuid column renders)", out.ID, stored)
+	}
+}
+
+// identity 与审计日志里的用户 ID 同样用 uuid 字符串形式。
 func TestIdentityAndAuditExposeUserIDForms(t *testing.T) {
 	uid := idgen.NewUserID()
 	want := idgen.FormatUserID(uid)
