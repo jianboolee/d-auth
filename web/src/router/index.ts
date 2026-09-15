@@ -101,16 +101,17 @@ router.beforeEach(async (to) => {
 });
 
 /**
- * 页面标题统一由路由决定：每个路由在 meta.title 里声明自己的名字，
- * 这里拼上站点名写入 document.title。放在路由而不是各页面组件里，
- * 是因为组件卸载时机不可靠——约定俗成的做法是让新页面覆盖旧标题。
- * 纯重定向路由没有 meta.title，回退到站点名。
+ * 页面标题统一由路由决定：每个路由在 meta.title 里声明自己的名字，这里直接
+ * 写进 document.title，不再拼接站点名。放在路由而不是各页面组件里，是因为
+ * 组件卸载时机不可靠——约定俗成的做法是让新页面覆盖旧标题。
+ *
+ * 没有 meta.title 的路由（未匹配地址等）回退到站点名，避免标题空着。
  */
 const SITE_TITLE = "账户中心";
 
 router.afterEach((to) => {
   const page = typeof to.meta.title === "string" ? to.meta.title.trim() : "";
-  document.title = page ? `${page} - ${SITE_TITLE}` : SITE_TITLE;
+  document.title = page || SITE_TITLE;
 });
 
 export default router;
