@@ -5,6 +5,7 @@ import { useAuthPaths, useEmbed } from "./paths";
 import { useConfirm } from "./confirm";
 import UsersPage from "./pages/UsersPage.vue";
 import UserDetailPage from "./pages/UserDetailPage.vue";
+import UserSessionsPage from "./pages/UserSessionsPage.vue";
 import RolesPage from "./pages/RolesPage.vue";
 import ClientsPage from "./pages/ClientsPage.vue";
 import ApiKeysPage from "./pages/ApiKeysPage.vue";
@@ -27,6 +28,7 @@ export type { ConfirmOptions } from "./confirm";
 export {
   UsersPage,
   UserDetailPage,
+  UserSessionsPage,
   RolesPage,
   ClientsPage,
   ApiKeysPage,
@@ -62,6 +64,8 @@ export function createAuthAdminRoutes(opts: AdminRouteOptions = {}): RouteRecord
     { path: `${base}/users`, component: UsersPage, props: { basePath: base }, meta: { title: "用户" } },
     { path: `${base}/users/new`, component: CreateUserPage, props: { basePath: base }, meta: { title: "创建用户" } },
     { path: `${base}/users/:id`, component: UserDetailPage, props: { basePath: base }, meta: { title: "用户详情" } },
+    // 会话列表独立成页：数量可能很多，详情页不必为它承担每次加载成本。
+    { path: `${base}/users/:id/sessions`, component: UserSessionsPage, props: { basePath: base }, meta: { title: "会话记录" } },
     { path: `${base}/roles`, component: RolesPage, meta: { title: "角色" } },
   ];
   if (variant === "full") {

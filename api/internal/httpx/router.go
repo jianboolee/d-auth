@@ -99,6 +99,8 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 		{
 			adminG.GET("/users", RequireScope("users:read"), h.AdminUsers)
 			adminG.GET("/users/:id", RequireScope("users:read"), h.AdminUser)
+			// 用户的登录会话独立分页，不塞进详情响应（会话数可能很多）
+			adminG.GET("/users/:id/sessions", RequireScope("users:read"), h.AdminUserSessions)
 			adminG.POST("/users", RequireScope("users:write"), h.AdminCreateUser)
 			// 生成虚拟手机号（120 开头），供建号表单「生成虚拟号」按钮填入；不写库。
 			// 路径放在 /users 之外，与 /users/:id 这类参数路由保持分离。

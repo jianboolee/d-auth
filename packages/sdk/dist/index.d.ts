@@ -172,10 +172,23 @@ export declare class DAuthClient {
         page: number;
         size: number;
     }>;
+    /** 用户详情。会话不在此返回，用 adminUserSessions 单独分页获取。 */
     adminUser(id: string): Promise<{
         user: User;
         identities: Identity[];
-        sessions: Session[];
+    }>;
+    /**
+     * 用户登录会话，分页返回。后台是审计视角：已失效/已下线的会话同样返回，
+     * 用 revoked_at 区分状态。
+     */
+    adminUserSessions(id: string, params?: {
+        page?: number;
+        size?: number;
+    }): Promise<{
+        items: Session[];
+        total: number;
+        page: number;
+        size: number;
     }>;
     /**
      * 后台建号接口。手机号走后台宽松校验，允许 120 开头的虚拟号等非真实号段

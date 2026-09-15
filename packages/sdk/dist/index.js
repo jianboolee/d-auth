@@ -337,8 +337,21 @@ export class DAuthClient {
         });
         return this.request(`/v1/admin/users?${qs.toString()}`);
     }
+    /** 用户详情。会话不在此返回，用 adminUserSessions 单独分页获取。 */
     adminUser(id) {
         return this.request(`/v1/admin/users/${id}`);
+    }
+    /**
+     * 用户登录会话，分页返回。后台是审计视角：已失效/已下线的会话同样返回，
+     * 用 revoked_at 区分状态。
+     */
+    adminUserSessions(id, params = {}) {
+        const qs = new URLSearchParams();
+        Object.entries(params).forEach(([k, v]) => {
+            if (v !== undefined && v !== "")
+                qs.set(k, String(v));
+        });
+        return this.request(`/v1/admin/users/${id}/sessions?${qs.toString()}`);
     }
     /**
      * 后台建号接口。手机号走后台宽松校验，允许 120 开头的虚拟号等非真实号段

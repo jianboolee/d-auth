@@ -453,8 +453,23 @@ export class DAuthClient {
     );
   }
 
+  /** 用户详情。会话不在此返回，用 adminUserSessions 单独分页获取。 */
   adminUser(id: string) {
-    return this.request<{ user: User; identities: Identity[]; sessions: Session[] }>(`/v1/admin/users/${id}`);
+    return this.request<{ user: User; identities: Identity[] }>(`/v1/admin/users/${id}`);
+  }
+
+  /**
+   * 用户登录会话，分页返回。后台是审计视角：已失效/已下线的会话同样返回，
+   * 用 revoked_at 区分状态。
+   */
+  adminUserSessions(id: string, params: { page?: number; size?: number } = {}) {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== "") qs.set(k, String(v));
+    });
+    return this.request<{ items: Session[]; total: number; page: number; size: number }>(
+      `/v1/admin/users/${id}/sessions?${qs.toString()}`,
+    );
   }
 
   /**

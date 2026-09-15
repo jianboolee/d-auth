@@ -160,16 +160,46 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 	return out, total, nil
 }
 
-func (s *Service) GetUser(id uuid.UUID) (dto.User, []models.Identity, []models.Session, error) {
+// GetUser 只组装详情页需要的基本信息与身份。会话不在这里返回：一个用户可能
+// 有很多条会话，塞进详情响应会让每次打开详情都为它买单，所以改由
+// ListUserSessions 单独分页提供（界面上的「会话记录」入口）。
+func (s *Service) GetUser(id uuid.UUID) (dto.User, []models.Identity, error) {
 	user, err := s.store.UserByID(id)
 	if err != nil {
-		return dto.User{}, nil, nil, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
+		return dto.User{}, nil, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
 	}
 	roles, _ := s.store.RoleCodes(id)
 	idents, _ := s.store.IdentitiesOf(id)
-	var sess []models.Session
-	_ = s.store.DB.Where("user_id = ?", id).Order("created_at DESC").Limit(50).Find(&sess).Error
-	return dto.FromUser(user, roles, idents, s.cfg.AvatarURL), idents, sess, nil
+	return dto.FromUser(user, roles, idents, s.cfg.AvatarURL), idents, nil
+}
+
+// ListUserSessions 分页返回某个用户的登录会话，最近创建的在前。
+//
+// 与自助端 usersvc.Sessions 的差别：那里只列「仍然有效」的会话（用户只需要
+// 管理自己当前登录的设备），后台则是审计视角，已失效与被下线的记录同样要能
+// 看到，所以这里不做 revoked/expired 过滤，由界面用状态列区分。
+func (s *Service) ListUserSessions(id uuid.UUID, page, size int) ([]models.Session, int64, error) {
+	if _, err := s.store.UserByID(id); err != nil {
+		return nil, 0, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	tx := s.store.DB.Model(&models.Session{}).Where("user_id = ?", id)
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var list []models.Session
+	// id 兜底排序：同一秒建立的多条会话没有稳定次序，翻页会重复或漏行。
+	if err := tx.Order("created_at DESC, id DESC").
+		Offset((page - 1) * size).Limit(size).Find(&list).Error; err != nil {
+		return nil, 0, err
+	}
+	return list, total, nil
 }
 
 type CreateUserInput struct {
@@ -233,7 +263,7 @@ func (s *Service) CreateUser(in CreateUserInput) (dto.User, error) {
 		return dto.User{}, err
 	}
 	s.invalidate(user.ID)
-	u, _, _, err := s.GetUser(user.ID)
+	u, _, err := s.GetUser(user.ID)
 	return u, err
 }
 
@@ -263,7 +293,7 @@ func (s *Service) PatchUser(id uuid.UUID, nickname *string, status *string, role
 			Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
 	}
 	s.invalidate(id)
-	u, _, _, err := s.GetUser(id)
+	u, _, err := s.GetUser(id)
 	return u, err
 }
 
@@ -325,7 +355,7 @@ func (s *Service) SetUserIdentity(id uuid.UUID, typ, raw string) (dto.User, erro
 		return dto.User{}, err
 	}
 	s.invalidate(id)
-	u, _, _, err := s.GetUser(id)
+	u, _, err := s.GetUser(id)
 	return u, err
 }
 

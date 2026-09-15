@@ -653,12 +653,31 @@ func (h *Handlers) AdminUser(c *gin.Context) {
 		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
 		return
 	}
-	u, idents, sess, err := h.Admin.GetUser(id)
+	u, idents, err := h.Admin.GetUser(id)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	response.OK(c, gin.H{"user": u, "identities": dto.FromIdentities(idents), "sessions": dto.FromSessions(sess)})
+	// 会话不在这里返回，走 /users/:id/sessions 分页获取。
+	response.OK(c, gin.H{"user": u, "identities": dto.FromIdentities(idents)})
+}
+
+// AdminUserSessions 分页返回某用户的登录会话。后台是审计视角，已失效/已下线的
+// 记录同样返回，由前端用状态列区分。
+func (h *Handlers) AdminUserSessions(c *gin.Context) {
+	id, err := idgen.ParseUserID(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("size", "10"))
+	list, total, err := h.Admin.ListUserSessions(id, page, size)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"items": dto.FromSessions(list), "total": total, "page": page, "size": size})
 }
 
 func (h *Handlers) AdminCreateUser(c *gin.Context) {

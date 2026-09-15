@@ -14,7 +14,7 @@ import {
   NTag,
   useMessage,
 } from "naive-ui";
-import type { Identity, Session, User } from "@donktech/d-auth-sdk";
+import type { Identity, User } from "@donktech/d-auth-sdk";
 import { computed } from "vue";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
@@ -36,7 +36,6 @@ const isSuper = computed(() => !!session.user.value?.roles?.includes("superadmin
 const DELETE_CONFIRM_TEXT = "确认注销";
 const user = ref<User | null>(null);
 const identities = ref<Identity[]>([]);
-const sessions = ref<Session[]>([]);
 const nickname = ref("");
 const roles = ref<string[]>([]);
 const phone = ref("");
@@ -49,12 +48,16 @@ async function load() {
   const [detail, rs] = await Promise.all([client.adminUser(id), client.adminRoles()]);
   user.value = detail.user;
   identities.value = detail.identities;
-  sessions.value = detail.sessions;
   nickname.value = detail.user.nickname;
   roles.value = detail.user.roles;
   phone.value = detail.user.phone ?? "";
   email.value = detail.user.email ?? "";
   roleOptions.value = rs.map((r) => ({ label: r.name || roleLabel(r.code), value: r.code }));
+}
+
+function openSessions() {
+  if (!user.value) return;
+  router.push(`${props.basePath ?? "/admin"}/users/${user.value.id}/sessions`);
 }
 
 async function save() {
@@ -191,15 +194,12 @@ onMounted(load);
           暂无数据
         </div>
       </n-card>
+      <!-- 会话数量可能很多，独立成页并分页展示；这里只放入口。 -->
       <n-card title="会话">
-        <div v-for="s in sessions" :key="s.id" class="row">
-          {{ s.device }} · {{ s.ip || "—" }} · {{ formatDateTime(s.created_at) }} ·
-          {{ s.revoked_at ? "已失效" : "有效" }}
-        </div>
-        <div v-if="!sessions.length" class="dauth-empty">
-          <i class="ri-inbox-2-line dauth-ri" />
-          暂无数据
-        </div>
+        <n-button @click="openSessions">
+          <template #icon><i class="ri-history-line dauth-ri" /></template>
+          查看会话记录
+        </n-button>
       </n-card>
     </n-space>
   </div>
