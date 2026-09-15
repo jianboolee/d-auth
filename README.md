@@ -21,11 +21,23 @@ Postgres / Redis 不再单独占端口，用默认的 5432 / 6379。
 ```bash
 cp .env.example .env
 make up          # Postgres :5432 + Redis :6379（默认端口）
-make api         # http://localhost:8681（启动时自动 migrate）
+make api         # http://localhost:8681（air 热重载，启动时自动 migrate）
 make web         # http://localhost:8682 （/v1 代理到 8681）
 ```
 
-或热重载一体：`make docker-dev`，浏览器打开 http://localhost:8682。
+`make api` 用 air 热重载，改 `.go` 会自动重建重启（首次用需 `go install github.com/air-verse/air@v1.66.0`）。
+不想用热重载时直接跑：`cd api && HTTP_PORT=8681 go run ./cmd/server`。
+
+端口起不来先看占用。本项目独占 8680-8682，占用者多半是上次没退干净的 `make api` / `make web`：
+
+```bash
+make stop        # 停掉 8680-8682 上的残留进程与 dev 容器栈，不动 Postgres / Redis
+```
+
+`make api` / `make web` 启动前也会预检端口，被占用时直接打印占用进程的 PID 与命令行。
+要连 Postgres / Redis 一起停，用 `make down`。
+
+或热重载一体（容器内）：`make docker-dev`，浏览器打开 http://localhost:8682。
 
 小程序 web-view / iframe 使用无侧栏地址：`/embed/login`、`/embed/account/profile`。
 
