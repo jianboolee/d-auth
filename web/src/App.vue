@@ -36,10 +36,14 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
     itemTextColorHover: "#18181b",
     itemTextColorActive: "#18181b",
     itemTextColorActiveHover: "#18181b",
-    itemIconColor: "#8a8a94",
+    // 图标与文字同色：naive 默认图标比文字浅一档，视觉上像未激活的次要元素
+    itemIconColor: "#3f3f46",
     itemIconColorHover: "#18181b",
     itemIconColorActive: "#18181b",
     itemIconColorActiveHover: "#18181b",
+    // 收起态没有文字可参照，若不定会回落到 naive 默认的 textColor1(#1f2225)，
+    // 比展开态更深——展开/收起时图标会变色。这里跟展开态对齐。
+    itemIconColorCollapsed: "#3f3f46",
     arrowColor: "#8a8a94",
     arrowColorHover: "#18181b",
   },
@@ -77,6 +81,10 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
     optionColorHover: "rgba(0, 0, 0, 0.045)",
     optionTextColor: "#3f3f46",
     optionTextColorHover: "#18181b",
+    // 图标（naive 里的 prefix 槽）走独立的 prefixColor，默认 textColor2 比
+    // 上面的文字色浅一档；不设就会与文字不一致。悬停/选中态由
+    // option-text-color-* 接管，无需单独配。
+    prefixColor: "#3f3f46",
   },
   // 提示消息：深蓝胶囊、白字、无图标
   Message: {

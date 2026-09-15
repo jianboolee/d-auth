@@ -356,13 +356,6 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
 
 <template>
   <div class="dauth-page security">
-    <header class="head">
-      <div>
-        <h1>安全</h1>
-        <p>管理你的登录密码与账号凭据</p>
-      </div>
-    </header>
-
     <div class="list">
       <div v-for="row in rows" :key="row.key" class="row">
         <i :class="`${row.icon} dauth-ri row-icon`" />
@@ -506,23 +499,6 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
 </template>
 
 <style scoped>
-.head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-.head h1 {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 600;
-}
-.head p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--dauth-text-secondary);
-}
 .list {
   border-radius: 12px;
   background: var(--dauth-surface);
@@ -538,7 +514,8 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
 }
 .row-icon {
   font-size: 18px;
-  color: var(--dauth-text-secondary);
+  /* 与左侧导航一致：图标与同行文字同色，不用更浅的次要色 */
+  color: var(--dauth-text);
   flex-shrink: 0;
 }
 .row-title {

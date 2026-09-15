@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { h, onMounted, ref } from "vue";
+import type { CSSProperties } from "vue";
 import { NButton, NCard, NDataTable, NTooltip, useMessage } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import type { Session } from "@donktech/d-auth-sdk";
@@ -42,25 +43,43 @@ function confirmRevoke(row: Session) {
   });
 }
 
+/**
+ * 设备单元格：图标与文字水平对齐，并撑开 8px 间距。
+ * 图标不设颜色，靠 theme.css 的 `.dauth-ri { color: inherit }` 继承同格的
+ * 文字色，天然与文字一致（写死颜色反而会和表格的文字色差一档）。
+ */
+const cellStyles: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+};
+
 const columns: DataTableColumns<Session> = [
   {
     title: "设备",
     key: "device",
+    // 单元格内容由 render 函数生成，不经过模板编译，拿不到 scoped 的 data-v
+    // 属性——写在该组件 <style scoped> 里的规则会静默失效。布局只能用内联样式。
     render: (r) =>
-      h("div", { class: "device-cell" }, [
+      h("div", { class: "device-cell", style: cellStyles }, [
         h("i", { class: "ri-computer-line dauth-ri" }),
-        h("span", null, r.device),
-        // 原始 UA 仅用于排查，收起在提示里
+        // 原始 UA 仅用于排查，收起在提示里。放在设备名之前：
+        // 跟在名字后面时，图标位置会随名字长短左右浮动。
         r.user_agent
           ? h(
               NTooltip,
               { trigger: "hover", style: { maxWidth: "420px" } },
               {
-                trigger: () => h("i", { class: "ri-information-line dauth-ri device-info" }),
+                trigger: () =>
+                  h("i", {
+                    class: "ri-information-line dauth-ri device-info",
+                    style: { cursor: "help" },
+                  }),
                 default: () => r.user_agent,
               },
             )
           : null,
+        h("span", null, r.device),
       ]),
   },
   { title: "IP 地址", key: "ip", render: (r) => r.ip || "—" },
@@ -85,7 +104,7 @@ onMounted(load);
 </script>
 
 <template>
-  <n-card title="登录设备" class="dauth-page wide">
+  <n-card class="dauth-page wide">
     <n-data-table :columns="columns" :data="items" :loading="loading">
       <template #empty>
         <div class="dauth-empty">
@@ -96,18 +115,3 @@ onMounted(load);
     </n-data-table>
   </n-card>
 </template>
-
-<style scoped>
-.device-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.device-cell .dauth-ri {
-  color: var(--dauth-text-secondary);
-}
-.device-info {
-  cursor: help;
-  font-size: 14px;
-}
-</style>
