@@ -396,7 +396,7 @@ func (s *Service) WeChatQRStatus(ctx context.Context, ticket string) (map[string
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	tokens, sess, err := s.issueSession(user, LoginMeta{ClientKey: "web_console"})
+	tokens, sess, err := s.issueSession(user, LoginMeta{ClientKey: models.ClientKeyConsole})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -428,6 +428,13 @@ func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta
 	}
 	if secretPlain == "" && s.cfg.IsDev() {
 		secretPlain = "mock"
+	}
+	// 凭据缺失时，请求会带着空 appid/secret 打到微信、失败后统一报「小程序登录
+	// 失败」，看不出是没配置还是微信侧报错。非 dev 环境先在这里明确挡下。
+	// dev 保留上面的 mock 回退，否则本地不带真凭据就跑不通小程序登录。
+	if !s.cfg.IsDev() && (cl.WechatAppID == "" || secretPlain == "") {
+		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "WECHAT_NOT_CONFIGURED",
+			"该小程序未配置微信凭据（AppID / AppSecret），请先在后台补齐")
 	}
 	info, err := s.wechat.MiniCode2Session(ctx, cl.WechatAppID, secretPlain, jsCode)
 	if err != nil {
@@ -527,7 +534,7 @@ func (s *Service) issueSession(user *models.User, meta LoginMeta) (*dto.TokenRes
 	}
 	var clientID *uuid.UUID
 	if meta.ClientKey == "" {
-		meta.ClientKey = "web_console"
+		meta.ClientKey = models.ClientKeyConsole
 	}
 	if cl, err := s.store.ClientByKey(meta.ClientKey); err == nil {
 		id := cl.ID
@@ -634,7 +641,7 @@ func (s *Service) Store() *store.Store { return s.store }
 
 func ClientKeyFrom(header string) string {
 	if header == "" {
-		return "web_console"
+		return models.ClientKeyConsole
 	}
 	return strings.TrimSpace(header)
 }

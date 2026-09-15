@@ -114,6 +114,8 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			adminG.GET("/clients", RequireScope("users:write"), h.AdminClients)
 			adminG.POST("/clients", RequireSuperAdmin(), h.AdminCreateClient)
 			adminG.PATCH("/clients/:id", RequireSuperAdmin(), h.AdminPatchClient)
+			// 删除应用会解绑所有引用它的会话（会话本身保留），不可逆，限超管
+			adminG.DELETE("/clients/:id", RequireSuperAdmin(), h.AdminDeleteClient)
 			adminG.GET("/api-keys", RequireSuperAdmin(), h.AdminAPIKeys)
 			adminG.POST("/api-keys", RequireSuperAdmin(), h.AdminCreateAPIKey)
 			adminG.PATCH("/api-keys/:id", RequireSuperAdmin(), h.AdminPatchAPIKey)

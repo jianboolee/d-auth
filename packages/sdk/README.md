@@ -48,7 +48,9 @@ npm i @donktech/d-auth-sdk
 
 ### Web（跨子域 Cookie）
 
-业务站需在 d-auth 后台登记 `client_key` 和 `allowed_origins`。Cookie 域为 `.x-rv.com` 时，`a.x-rv.com` 与 `auth.x-rv.com` 可共用登录态。
+业务站需在 d-auth 后台「应用 / 小程序」里登记 `client_key`。Cookie 域为 `.x-rv.com` 时，`a.x-rv.com` 与 `auth.x-rv.com` 可共用登录态。
+
+跨域放行由服务端环境变量 `DAUTH_ALLOWED_ORIGINS` 控制，不在后台按应用配置。
 
 ```ts
 import { createDAuthClient, isApiError } from "@donktech/d-auth-sdk";

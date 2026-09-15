@@ -389,15 +389,37 @@ type ClientInput struct {
 	Status         string   `json:"status"`
 }
 
+// clientKeyRe 限制应用标识：小写字母开头，后接小写字母/数字/下划线/连字符。
+// 这个值要作为 X-DAuth-Client 请求头在客户端与服务端之间往返，含空白或换行
+// 本身就是隐患；与角色代码用同一套规则，现有标识（web_console 等）都符合。
+var clientKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
+
+func errInvalidClientKey() error {
+	return apperr.New(apperr.ErrInvalidArgument, "INVALID_CLIENT_KEY",
+		"应用标识需以小写字母开头，可含小写字母、数字、下划线和连字符，共 2-32 位")
+}
+
 func (s *Service) CreateClient(in ClientInput) (*models.Client, error) {
 	if in.ClientKey == "" || in.Name == "" {
 		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_BODY", "缺少 client_key 或名称")
+	}
+	if !clientKeyRe.MatchString(in.ClientKey) {
+		return nil, errInvalidClientKey()
 	}
 	if in.Type == "" {
 		in.Type = "web"
 	}
 	if in.Status == "" {
 		in.Status = models.StatusActive
+	}
+	// 这两列是 NOT NULL，而 nil slice 会被写成 NULL：调用方省略字段（SDK 的
+	// ClientInput 是可选的）就会撞非空约束。控制台总是发 []，所以这个坑只在
+	// 直接调 API/SDK 时暴露，且原先会被误报成「client_key 已存在」。归一成空数组。
+	if in.AllowedOrigins == nil {
+		in.AllowedOrigins = []string{}
+	}
+	if in.LoginMethods == nil {
+		in.LoginMethods = []string{}
 	}
 	enc, err := secret.Encrypt(s.cfg.MasterKey, in.WechatSecret)
 	if err != nil {
@@ -417,7 +439,12 @@ func (s *Service) CreateClient(in ClientInput) (*models.Client, error) {
 		UpdatedAt:          time.Now(),
 	}
 	if err := s.store.DB.Create(&cl).Error; err != nil {
-		return nil, apperr.New(apperr.ErrConflict, "CLIENT_TAKEN", "client_key 已存在")
+		// 只有唯一索引冲突才算「已存在」；其它库错误如实抛出，
+		// 不要一律说成重名，否则真实故障会被误导成命名问题。
+		if store.IsUniqueViolation(err) {
+			return nil, apperr.New(apperr.ErrConflict, "CLIENT_TAKEN", "client_key 已存在")
+		}
+		return nil, err
 	}
 	return &cl, nil
 }
@@ -428,6 +455,19 @@ func (s *Service) UpdateClient(id uuid.UUID, in ClientInput) (*models.Client, er
 		return nil, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "应用不存在")
 	}
 	updates := map[string]any{"updated_at": time.Now()}
+	// 应用标识可变，但控制台自己依赖 web_console：前端硬编码了它，登录流程也
+	// 会回退到它。改名后控制台发出的请求对不上应用、会话不再归属任何应用，
+	// 且要改代码重新部署才能恢复，所以这一行禁止改名。
+	if in.ClientKey != "" && in.ClientKey != cl.ClientKey {
+		if !clientKeyRe.MatchString(in.ClientKey) {
+			return nil, errInvalidClientKey()
+		}
+		if cl.ClientKey == models.ClientKeyConsole {
+			return nil, apperr.New(apperr.ErrInvalidArgument, "CLIENT_PROTECTED",
+				"控制台应用的标识不允许修改")
+		}
+		updates["client_key"] = in.ClientKey
+	}
 	if in.Name != "" {
 		updates["name"] = in.Name
 	}
@@ -454,9 +494,35 @@ func (s *Service) UpdateClient(id uuid.UUID, in ClientInput) (*models.Client, er
 		updates["wechat_app_secret_enc"] = enc
 	}
 	if err := s.store.DB.Model(cl).Updates(updates).Error; err != nil {
+		if store.IsUniqueViolation(err) {
+			return nil, apperr.New(apperr.ErrConflict, "CLIENT_TAKEN", "client_key 已存在")
+		}
 		return nil, err
 	}
 	return s.store.ClientByID(id)
+}
+
+// DeleteClient 物理删除应用。
+//
+// auth_sessions.client_id 是指向 auth_clients 的外键且没有 ON DELETE，直接删会
+// 撞外键冲突；而会话是用户的登录历史，不该因为应用被删就跟着消失。所以先把
+// 引用置空再删应用——与 DeleteAccount 解绑 api_keys.created_by 是同一考虑。
+func (s *Service) DeleteClient(id uuid.UUID) error {
+	cl, err := s.store.ClientByID(id)
+	if err != nil {
+		return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "应用不存在")
+	}
+	if cl.ClientKey == models.ClientKeyConsole {
+		return apperr.New(apperr.ErrInvalidArgument, "CLIENT_PROTECTED",
+			"控制台应用不允许删除")
+	}
+	return s.store.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Session{}).Where("client_id = ?", id).
+			Update("client_id", nil).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.Client{}, "id = ?", id).Error
+	})
 }
 
 func (s *Service) ListAPIKeys() ([]models.APIKey, error) {

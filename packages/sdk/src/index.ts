@@ -524,6 +524,11 @@ export class DAuthClient {
     return this.request<ClientApp>(`/v1/admin/clients/${id}`, { method: "PATCH", body: JSON.stringify(body) });
   }
 
+  /** 删除应用。控制台自身（web_console）会返回 CLIENT_PROTECTED。 */
+  adminDeleteClient(id: string) {
+    return this.request<{ ok: boolean }>(`/v1/admin/clients/${id}`, { method: "DELETE" });
+  }
+
   adminApiKeys() {
     return this.request<ApiKey[]>("/v1/admin/api-keys");
   }

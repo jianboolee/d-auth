@@ -847,6 +847,10 @@ func (h *Handlers) AdminCreateClient(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	h.audit(c, "client.create", nil, map[string]any{
+		"client_id":  cl.ID.String(),
+		"client_key": cl.ClientKey,
+	})
 	response.OK(c, cl)
 }
 
@@ -865,7 +869,26 @@ func (h *Handlers) AdminPatchClient(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	h.audit(c, "client.patch", nil, map[string]any{
+		"client_id":  cl.ID.String(),
+		"client_key": cl.ClientKey,
+		"status":     cl.Status,
+	})
 	response.OK(c, cl)
+}
+
+func (h *Handlers) AdminDeleteClient(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	if err := h.Admin.DeleteClient(id); err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "client.delete", nil, map[string]any{"client_id": id.String()})
+	response.OK(c, gin.H{"ok": true})
 }
 
 func (h *Handlers) AdminAPIKeys(c *gin.Context) {

@@ -215,6 +215,10 @@ export declare class DAuthClient {
     adminPatchClient(id: string, body: Partial<ClientApp> & {
         wechat_app_secret?: string;
     }): Promise<ClientApp>;
+    /** 删除应用。控制台自身（web_console）会返回 CLIENT_PROTECTED。 */
+    adminDeleteClient(id: string): Promise<{
+        ok: boolean;
+    }>;
     adminApiKeys(): Promise<ApiKey[]>;
     adminCreateApiKey(body: {
         name: string;

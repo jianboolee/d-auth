@@ -23,6 +23,13 @@ const (
 	RoleSuperAdmin = "superadmin"
 	RoleAdmin      = "admin"
 	RoleUser       = "user"
+
+	// ClientKeyConsole 是控制台自身的应用标识：web/src/api/client.ts 硬编码了这个
+	// 值，登录流程在缺少 X-DAuth-Client 时也回退到它。改名或删除会让控制台发出的
+	// 请求对不上应用、会话不再归属任何应用，因此后台禁止对它做这两件事。
+	//
+	// 若将来要把它改成生产用的名字，必须同步修改前端硬编码的值并重新部署。
+	ClientKeyConsole = "web_console"
 )
 
 type TextArray []string
