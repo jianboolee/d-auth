@@ -68,9 +68,17 @@ func (s *Store) ReplaceRoles(tx *gorm.DB, userID uuid.UUID, codes []string) erro
 	return s.AddRoles(tx, userID, codes...)
 }
 
+// RoleCodes 读取用户的角色代码。
+//
+// 没有角色时返回空切片而不是 nil：nil 序列化成 JSON 的 null，而客户端按数组
+// 处理（dto.User.Roles 是 []string），后台用户列表会因此在渲染角色列时崩掉。
+// TextArray.Scan 已经做了同样的归一，这里保持一致。
 func (s *Store) RoleCodes(userID uuid.UUID) ([]string, error) {
 	var codes []string
 	err := s.DB.Raw(`SELECT r.code FROM auth_roles r JOIN auth_user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ?`, userID).Scan(&codes).Error
+	if codes == nil {
+		codes = []string{}
+	}
 	return codes, err
 }
 

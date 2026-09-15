@@ -51,9 +51,12 @@ const columns: DataTableColumns<User> = [
   {
     title: "角色",
     key: "roles",
+    // 后端保证 roles 是数组（RoleCodes 会归一成空切片），这里仍兜一层：
+    // 单条记录缺字段不该让整页渲染抛错——渲染函数一抛，router-view 会永久
+    // 停在出错前那一页，切路由全部失效，且默认没有任何报错提示。
     render: (r) =>
       h(NSpace, { size: 4 }, () =>
-        r.roles.map((role) => h(NTag, { size: "small", bordered: false }, { default: () => roleLabel(role) })),
+        (r.roles ?? []).map((role) => h(NTag, { size: "small", bordered: false }, { default: () => roleLabel(role) })),
       ),
   },
   {

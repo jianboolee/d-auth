@@ -28,4 +28,15 @@ dauth.setUnauthorizedHandler(() => {
 });
 
 app.use(naive);
+
+// 组件渲染抛错时，Vue 默认只打一条警告，router-view 会停在上一个成功渲染的
+// 页面：地址栏变了、标题也变了（标题在路由钩子里设），内容却不变，切任何路由
+// 都没反应，看起来就像「页面卡住了」。
+//
+// 之前用户列表就因为一条没有角色的记录（roles 为 null）触发过这个现象。这里
+// 把错误统一打到控制台并带上组件与阶段，至少让这类故障可定位，而不是静默冻结。
+app.config.errorHandler = (err, _instance, info) => {
+  console.error(`[d-auth] 组件错误（${info}）`, err);
+};
+
 app.mount("#app");
