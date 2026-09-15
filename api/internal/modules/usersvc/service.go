@@ -17,6 +17,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/codes"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
 	"github.com/jianboolee/d-auth/internal/modules/store"
+	"github.com/jianboolee/d-auth/internal/modules/usercache"
 	"github.com/jianboolee/d-auth/internal/normalize"
 	"gorm.io/gorm"
 )
@@ -27,10 +28,19 @@ type Service struct {
 	codes *codes.Service
 	oss   ossstore.Store
 	auth  *auth.Service
+	// cache 缓存组装好的用户资料。自助接口的每个写操作（改资料、改密码、
+	// 换绑手机/邮箱、改头像、注销）都会让资料变化，因此每次写完都要 Del。
+	cache *usercache.Cache
 }
 
-func New(cfg *config.Config, st *store.Store, c *codes.Service, oss ossstore.Store, a *auth.Service) *Service {
-	return &Service{cfg: cfg, store: st, codes: c, oss: oss, auth: a}
+func New(cfg *config.Config, st *store.Store, c *codes.Service, oss ossstore.Store, a *auth.Service, cache *usercache.Cache) *Service {
+	return &Service{cfg: cfg, store: st, codes: c, oss: oss, auth: a, cache: cache}
+}
+
+// invalidate 让某个用户的资料缓存立即作废。所有会改动用户资料的自助写操作
+// 都应调用它；漏掉只会在 TTL 内返回旧数据，不会报错。
+func (s *Service) invalidate(userID uuid.UUID) {
+	s.cache.Del(context.Background(), userID)
 }
 
 func (s *Service) Me(userID uuid.UUID) (dto.User, error) {
@@ -57,6 +67,7 @@ func (s *Service) UpdateMe(userID uuid.UUID, p PatchMe) (dto.User, error) {
 	if err := s.store.DB.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
 		return dto.User{}, err
 	}
+	s.invalidate(userID)
 	return s.Me(userID)
 }
 
@@ -75,6 +86,8 @@ func (s *Service) ChangePassword(userID uuid.UUID, newPass string, sessionID uui
 	}).Error; err != nil {
 		return err
 	}
+	// has_password 会出现在资料里。
+	s.invalidate(userID)
 	now := time.Now()
 	return s.store.DB.Model(&models.Session{}).
 		Where("user_id = ? AND id <> ? AND revoked_at IS NULL", userID, sessionID).
@@ -102,7 +115,11 @@ func (s *Service) ChangePhone(ctx context.Context, userID uuid.UUID, newPhoneRaw
 	if store.IsUniqueViolation(err) {
 		return apperr.New(apperr.ErrPhoneTaken, "PHONE_TAKEN", "手机号已被使用")
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	s.invalidate(userID)
+	return nil
 }
 
 func (s *Service) BindEmail(ctx context.Context, userID uuid.UUID, emailRaw, code string) error {
@@ -124,7 +141,11 @@ func (s *Service) BindEmail(ctx context.Context, userID uuid.UUID, emailRaw, cod
 	if store.IsUniqueViolation(err) {
 		return apperr.New(apperr.ErrEmailTaken, "EMAIL_TAKEN", "邮箱已被使用")
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	s.invalidate(userID)
+	return nil
 }
 
 func (s *Service) Identities(userID uuid.UUID) ([]models.Identity, error) {
@@ -151,7 +172,11 @@ func (s *Service) DeleteAccount(userID uuid.UUID, confirm string) error {
 	if err := s.guardLastSuperAdmin(userID); err != nil {
 		return err
 	}
-	return s.store.DeleteAccount(userID)
+	if err := s.store.DeleteAccount(userID); err != nil {
+		return err
+	}
+	s.invalidate(userID)
+	return nil
 }
 
 // guardLastSuperAdmin 在目标用户是超管时，确认还有其它活跃超管可用。
@@ -195,6 +220,7 @@ func (s *Service) UnbindIdentity(userID, identID uuid.UUID) error {
 	if res.RowsAffected == 0 {
 		return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "标识不存在")
 	}
+	s.invalidate(userID)
 	return nil
 }
 
@@ -250,6 +276,7 @@ func (s *Service) ConfirmAvatar(userID uuid.UUID, objectKey string) (dto.User, e
 	}).Error; err != nil {
 		return dto.User{}, err
 	}
+	s.invalidate(userID)
 	return s.Me(userID)
 }
 

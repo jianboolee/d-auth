@@ -104,7 +104,7 @@ const auth = createDAuthServiceClient({
   apiKey: process.env.DAUTH_API_KEY!, // dak_live_...
 });
 
-await auth.internalUser(userId);
+ await auth.internalUser(userId);
 await auth.internalLookup({ phone: "+8613800000000" });
 await auth.internalLookup({ email: "a@example.com" });
 ```
@@ -116,6 +116,33 @@ Authorization: Bearer dak_live_...
 GET /v1/internal/users/:id
 GET /v1/internal/users?phone=+86138...
 ```
+
+### 业务端读用户资料（脱敏）
+
+展示用户信息用这组接口：手机号/邮箱已脱敏，角色折叠成 `is_admin` 布尔值。同样需要 `users:read` 密钥，**不要**从浏览器直连。
+
+```ts
+const profile = await auth.userProfile(userId);
+
+// 批量：顺序与入参 ids 一致，查不到的 id 会被跳过
+const list = await auth.users({ ids: [id1, id2, id3] });
+
+// 精确匹配：匹配不上返回空数组，可直接用来判断「注册过没有」
+const found = await auth.users({ phone: "+8613800000000" });
+const byMail = await auth.users({ email: "a@example.com" });
+```
+
+等价 HTTP：
+
+```http
+GET /v1/users/:id
+GET /v1/users?ids=a,b,c
+GET /v1/users?phone=+86138...
+GET /v1/users?email=a@example.com
+```
+
+`/v1/internal/*` 返回明文与完整 `roles`，只适合服务端内部使用；`/v1/users` 是脱敏版，可以安全地透给前端。
+
 
 ## 导出一览
 

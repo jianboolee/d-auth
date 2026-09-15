@@ -38,7 +38,9 @@ func newTestService(t *testing.T) (*Service, *store.Store) {
 	}
 	st := store.New(db)
 	cfg := &config.Config{MasterKey: "test-master-key-please-change-32b!!"}
-	return New(cfg, st), st
+	// 传 nil 缓存：这些用例只关心客户端生命周期，不涉及用户资料读取；
+	// usercache 的所有方法都接受 nil 接收者。
+	return New(cfg, st, nil), st
 }
 
 func codeOf(err error) string {

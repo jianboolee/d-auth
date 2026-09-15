@@ -20,7 +20,9 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/codes"
 	"github.com/jianboolee/d-auth/internal/modules/legal"
+	"github.com/jianboolee/d-auth/internal/modules/profile"
 	"github.com/jianboolee/d-auth/internal/modules/store"
+	"github.com/jianboolee/d-auth/internal/modules/usercache"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
 )
 
@@ -76,6 +78,12 @@ func New(cfg *config.Config) (*gin.Engine, error) {
 	}
 
 	st := store.New(db)
+	userCache := usercache.New(redis, cfg.UserCacheTTL)
+	if userCache.Enabled() {
+		slog.Info("user profile cache enabled", "ttl", userCache.TTL())
+	} else {
+		slog.Info("user profile cache disabled")
+	}
 	codeSvc := codes.New(redis, codes.Options{
 		TTL:         cfg.CodeTTL,
 		Cooldown:    cfg.CodeCooldown,
@@ -83,11 +91,12 @@ func New(cfg *config.Config) (*gin.Engine, error) {
 		PerIPMinute: cfg.CodePerIPMinute,
 		PerIPHour:   cfg.CodePerIPHour,
 	})
-	authSvc := auth.New(cfg, st, codeSvc, smsSender, mailSender, jwt, wx, redis)
-	userSvc := usersvc.New(cfg, st, codeSvc, oss, authSvc)
-	adminSvc := admin.New(cfg, st)
+	authSvc := auth.New(cfg, st, codeSvc, smsSender, mailSender, jwt, wx, redis, userCache)
+	userSvc := usersvc.New(cfg, st, codeSvc, oss, authSvc, userCache)
+	adminSvc := admin.New(cfg, st, userCache)
 	legalSvc := legal.New(st)
-	return httpx.NewRouter(cfg, authSvc, userSvc, adminSvc, legalSvc), nil
+	profileSvc := profile.New(cfg, st, userCache)
+	return httpx.NewRouter(cfg, authSvc, userSvc, adminSvc, legalSvc, profileSvc), nil
 }
 
 func findMigrations() string {

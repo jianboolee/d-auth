@@ -562,6 +562,30 @@ export class DAuthClient {
     return this.request<User>(`/v1/internal/users?${qs.toString()}`);
   }
 
+  /**
+   * 业务端读用户资料（手机号/邮箱已脱敏，角色折叠成 is_admin）。
+   * 需要 scope 含 users:read 的 API Key：请用 createDAuthServiceClient。
+   */
+  userProfile(id: string) {
+    return this.request<UserProfile>(`/v1/users/${id}`);
+  }
+
+  /**
+   * 批量取资料或按手机号/邮箱精确匹配。ids/phone/email 三选一。
+   * 批量时查不到的 id 会被跳过（不会报错），返回值顺序与 ids 一致。
+   * 匹配不上返回空数组而不是抛错，便于「这个手机号注册过没有」这类判断。
+   */
+  async users(params: { ids?: string[]; phone?: string; email?: string }): Promise<UserProfile[]> {
+    const qs = new URLSearchParams();
+    if (params.ids && params.ids.length) qs.set("ids", params.ids.join(","));
+    if (params.phone) qs.set("phone", params.phone);
+    if (params.email) qs.set("email", params.email);
+    const data = await this.request<{ items: UserProfile[]; total: number }>(
+      `/v1/users?${qs.toString()}`,
+    );
+    return data.items;
+  }
+
   adminAudit(params: { q?: string; page?: number; size?: number } = {}) {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
@@ -570,6 +594,27 @@ export class DAuthClient {
     return this.request<{ items: AuditLog[]; total: number }>(`/v1/admin/audit-logs?${qs.toString()}`);
   }
 }
+
+/**
+ * 业务端看到的用户资料（/v1/users）。手机号/邮箱已脱敏，
+ * 角色明细折叠成 is_admin —— 业务端通常只需要判断「是不是管理员」。
+ */
+export type UserProfile = {
+  id: string;
+  nickname: string;
+  avatar_url: string;
+  bio: string;
+  gender: number;
+  status: string;
+  /** 是否为管理角色（admin / superadmin）。 */
+  is_admin: boolean;
+  has_phone: boolean;
+  /** 已脱敏，如 138****8000。未绑定时不返回。 */
+  phone?: string;
+  /** 已脱敏，如 z***n@example.com。未绑定时不返回。 */
+  email?: string;
+  created_at: string;
+};
 
 export type Identity = {
   id: string;

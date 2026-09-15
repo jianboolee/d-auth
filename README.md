@@ -104,4 +104,37 @@ const auth = createDAuthServiceClient({
 const user = await auth.internalLookup({ phone: "13800000000" });
 ```
 
+## 业务端读取用户资料
+
+业务系统（前端或后端）显示用户信息时，直接调 d-auth 查，不必在自己的库里存一份用户表：
+
+| 接口 | 用途 | 返回 |
+| --- | --- | --- |
+| `GET /v1/users/:id` | 用户详情 | 单个资料对象 |
+| `GET /v1/users?ids=a,b,c` | 批量取资料（最多 100 个，查不到的静默跳过） | `{ items, total }` |
+| `GET /v1/users?phone=…` 或 `?email=…` | 按手机号/邮箱精确匹配 | `{ items, total }`（0 或 1 条） |
+
+`ids` / `phone` / `email` 只能给其中一个，都不给或给多个返回 400 `INVALID_BODY`。
+
+**鉴权**：需要 scope 含 `users:read` 的 API Key（控制台「接口密钥」创建，`dak_live_...`）。这个接口**不接受**浏览器里的用户登录态 —— 业务前端不要直连，请由自己的后端持密钥转发，否则密钥会泄露到浏览器。
+
+**这两个接口的区别**：
+
+- `/v1/users`：手机号/邮箱**脱敏**（`138****8000`），角色折叠成布尔值 `is_admin`，适合前端展示。
+- `/v1/internal/users`：返回**明文**手机号/邮箱与完整 `roles`，适合服务端做业务判断。别把它的结果原样吐给前端。
+
+资料里的 `phone` / `email` 未绑定时不返回；`has_phone` 为 `false`。
+
+```ts
+const auth = createDAuthServiceClient({ baseURL: "https://auth.x-rv.com", apiKey: process.env.DAUTH_API_KEY! });
+
+const me = await auth.userProfile(userId);          // 单个
+const list = await auth.users({ ids: [id1, id2] }); // 批量，顺序与入参一致
+const hit = await auth.users({ phone: "13800000000" }); // 匹配不上返回 []
+```
+
+### 缓存
+
+用户资料在 Redis 中缓存，读取接口命中缓存即可省掉数据库往返。改动资料、角色、身份、密码、头像、注销等写路径都会显式让缓存失效，`DAUTH_USER_CACHE_TTL`（默认 `60s`）只是兜底的最大陈旧窗口。配 `0` 即关闭缓存（每次回源数据库，功能不受影响）。Redis 不可用时自动降级为直查数据库，不会让接口报错。
+
 嵌入用户管理页（可选）：[`@donktech/d-auth-admin`](packages/admin/README.md) 的 `createAuthAccountRoutes` / `createAuthAdminRoutes`。

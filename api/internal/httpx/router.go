@@ -9,10 +9,11 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/admin"
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/legal"
+	"github.com/jianboolee/d-auth/internal/modules/profile"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
 )
 
-func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service, adm *admin.Service, legalSvc *legal.Service) *gin.Engine {
+func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service, adm *admin.Service, legalSvc *legal.Service, profiles *profile.Service) *gin.Engine {
 	if cfg.IsDev() {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -27,7 +28,7 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 	}
 	r.Use(Recover(), RequestID(), Logger(), CORS(cfg))
 
-	h := &Handlers{Cfg: cfg, Auth: authSvc, Users: users, Admin: adm, LegalDocs: legalSvc}
+	h := &Handlers{Cfg: cfg, Auth: authSvc, Users: users, Admin: adm, LegalDocs: legalSvc, Profiles: profiles}
 
 	r.GET("/health", h.Health)
 	r.GET("/static/*path", StaticUploads(ossstore.DataRoot()))
@@ -126,9 +127,19 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			adminG.GET("/audit-logs", RequireScope("users:read"), h.AdminAudit)
 		}
 
+		// 业务端读取用户资料：仅 API Key（scope users:read）可调，返回脱敏资料，
+		// 角色折叠成 is_admin。响应刻意不含明文手机/邮箱——那是 /v1/internal 的职责。
+		usersG := v1.Group("/users")
+		usersG.Use(Authenticate(cfg, authSvc), RequireScope("users:read"))
+		{
+			usersG.GET("", h.UsersQuery)
+			usersG.GET("/:id", h.UserProfile)
+		}
+
 		internal := v1.Group("/internal")
 		internal.Use(Authenticate(cfg, authSvc), RequireScope("users:read"))
 		{
+			// 走 profile 缓存；响应形状与历史上一致（明文 + 完整 roles），只是读路径变了。
 			internal.GET("/users/:id", h.InternalUser)
 			internal.GET("/users", h.InternalLookup)
 		}

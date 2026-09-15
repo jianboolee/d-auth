@@ -37,6 +37,38 @@ type TokenResult struct {
 	User         User   `json:"user"`
 }
 
+// Profile 是给业务系统看的用户资料。
+//
+// 刻意不含 User 的全部字段：roles 明细折叠成 IsAdmin 布尔值（业务端要知道
+// 「是不是管理员」几乎都是为了展示标识，不需要知道对方还有哪些自定义角色），
+// 并且不含 has_password / last_login_at —— 前者是账号安全信息，后者是隐私，
+// 带上它们还会让公开资料随「登录」「改密码」失效，白丢缓存命中。
+type Profile struct {
+	ID        string `json:"id"`
+	Nickname  string `json:"nickname"`
+	AvatarURL string `json:"avatar_url"`
+	Bio       string `json:"bio"`
+	Gender    int16  `json:"gender"`
+	Status    string `json:"status"`
+	// IsAdmin 表示是否为管理角色（admin 或 superadmin）。
+	IsAdmin  bool `json:"is_admin"`
+	HasPhone bool `json:"has_phone"`
+	// Phone / Email 已脱敏，如 138****8000、z***n@example.com。
+	Phone     string    `json:"phone,omitempty"`
+	Email     string    `json:"email,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// IsAdminRoles 判断角色列表中是否含管理角色。
+func IsAdminRoles(roles []string) bool {
+	for _, r := range roles {
+		if r == models.RoleAdmin || r == models.RoleSuperAdmin {
+			return true
+		}
+	}
+	return false
+}
+
 // FromUser 组装对外用户信息。avatar 由调用方注入，用于把 avatar_key 转成公开地址
 // （含图片处理后缀），避免各模块重复实现 URL 拼接。
 func FromUser(u *models.User, roles []string, idents []models.Identity, avatar func(string) string) User {
@@ -74,6 +106,28 @@ func Masked(u User) User {
 		u.Email = normalize.MaskEmail(u.Email)
 	}
 	return u
+}
+
+// FromUserProfile 由已组装好的 User 生成公开资料：脱敏手机号/邮箱，
+// 并把角色明细折叠成 IsAdmin。
+//
+// 入参是 User 而不是各个原始模型，是为了让缓存命中的条目能直接复用——
+// 缓存的正是 User（既服务 internal 的明文返回，也服务这里的脱敏输出）。
+func FromUserProfile(u User) Profile {
+	m := Masked(u)
+	return Profile{
+		ID:        m.ID,
+		Nickname:  m.Nickname,
+		AvatarURL: m.AvatarURL,
+		Bio:       m.Bio,
+		Gender:    m.Gender,
+		Status:    m.Status,
+		IsAdmin:   IsAdminRoles(u.Roles),
+		HasPhone:  m.HasPhone,
+		Phone:     m.Phone,
+		Email:     m.Email,
+		CreatedAt: m.CreatedAt,
+	}
 }
 
 // Identity 对外暴露的绑定身份。user_id 转成对外的用户 ID 形式（uuid 字符串）。

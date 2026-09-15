@@ -439,6 +439,29 @@ export class DAuthClient {
             qs.set("email", params.email);
         return this.request(`/v1/internal/users?${qs.toString()}`);
     }
+    /**
+     * 业务端读用户资料（手机号/邮箱已脱敏，角色折叠成 is_admin）。
+     * 需要 scope 含 users:read 的 API Key：请用 createDAuthServiceClient。
+     */
+    userProfile(id) {
+        return this.request(`/v1/users/${id}`);
+    }
+    /**
+     * 批量取资料或按手机号/邮箱精确匹配。ids/phone/email 三选一。
+     * 批量时查不到的 id 会被跳过（不会报错），返回值顺序与 ids 一致。
+     * 匹配不上返回空数组而不是抛错，便于「这个手机号注册过没有」这类判断。
+     */
+    async users(params) {
+        const qs = new URLSearchParams();
+        if (params.ids && params.ids.length)
+            qs.set("ids", params.ids.join(","));
+        if (params.phone)
+            qs.set("phone", params.phone);
+        if (params.email)
+            qs.set("email", params.email);
+        const data = await this.request(`/v1/users?${qs.toString()}`);
+        return data.items;
+    }
     adminAudit(params = {}) {
         const qs = new URLSearchParams();
         Object.entries(params).forEach(([k, v]) => {

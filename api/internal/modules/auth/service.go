@@ -25,6 +25,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/codes"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
 	"github.com/jianboolee/d-auth/internal/modules/store"
+	"github.com/jianboolee/d-auth/internal/modules/usercache"
 	"github.com/jianboolee/d-auth/internal/normalize"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -39,10 +40,13 @@ type Service struct {
 	jwt    *tokens.Manager
 	wechat wechat.Client
 	rdb    *redis.Client
+	// cache 缓存组装好的用户资料。登录会更新 last_login_at、提升超管会改角色，
+	// 两处都要让缓存失效，否则 internal 接口会返回陈旧的「最近登录时间」。
+	cache *usercache.Cache
 }
 
-func New(cfg *config.Config, st *store.Store, c *codes.Service, smsSender sms.Sender, mailSender mailer.Sender, jwt *tokens.Manager, wx wechat.Client, rdb *redis.Client) *Service {
-	return &Service{cfg: cfg, store: st, codes: c, sms: smsSender, mail: mailSender, jwt: jwt, wechat: wx, rdb: rdb}
+func New(cfg *config.Config, st *store.Store, c *codes.Service, smsSender sms.Sender, mailSender mailer.Sender, jwt *tokens.Manager, wx wechat.Client, rdb *redis.Client, cache *usercache.Cache) *Service {
+	return &Service{cfg: cfg, store: st, codes: c, sms: smsSender, mail: mailSender, jwt: jwt, wechat: wx, rdb: rdb, cache: cache}
 }
 
 type LoginMeta struct {
@@ -571,6 +575,8 @@ func (s *Service) issueSession(user *models.User, meta LoginMeta) (*dto.TokenRes
 	now := time.Now()
 	_ = s.store.DB.Model(user).Updates(map[string]any{"last_login_at": now, "last_login_ip": meta.IP, "updated_at": now}).Error
 	user.LastLoginAt = &now
+	// last_login_at 会出现在用户资料里，登录后必须让缓存失效。
+	s.cache.Del(context.Background(), user.ID)
 	return s.pack(user, roles, access, refreshRaw), &sess, nil
 }
 
@@ -614,6 +620,8 @@ func (s *Service) maybePromoteAdmin(user *models.User, phone, email string) {
 		return
 	}
 	_ = s.store.AddRoles(nil, user.ID, models.RoleSuperAdmin, models.RoleAdmin)
+	// 角色变了，缓存里的 is_admin / roles 立即作废。
+	s.cache.Del(context.Background(), user.ID)
 }
 
 func (s *Service) revokeUserSessions(userID, except uuid.UUID) error {

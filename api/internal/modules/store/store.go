@@ -82,6 +82,61 @@ func (s *Store) RoleCodes(userID uuid.UUID) ([]string, error) {
 	return codes, err
 }
 
+// UsersByIDs 批量读用户，一次 IN 查询。缺失的 id 不会出现在结果里，
+// 调用方据此发现「查不到」，而不是拿到零值 user。
+func (s *Store) UsersByIDs(ids []uuid.UUID) ([]models.User, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var users []models.User
+	err := s.DB.Where("id IN ? AND deleted_at IS NULL", ids).Find(&users).Error
+	return users, err
+}
+
+// userRoleRow 是 RoleCodesByUserIDs 的扫描目标：一条 (user_id, code) 记录。
+type userRoleRow struct {
+	UserID uuid.UUID `gorm:"column:user_id"`
+	Code   string    `gorm:"column:code"`
+}
+
+// RoleCodesByUserIDs 批量读用户角色，返回 user_id → 角色代码。
+// 没有角色的用户不会出现在 map 里（而不是空切片）：调用方用它填充结果时
+// 需要区分「查不到该用户」与「用户没有角色」，后者由调用方自行补空切片。
+func (s *Store) RoleCodesByUserIDs(ids []uuid.UUID) (map[uuid.UUID][]string, error) {
+	out := make(map[uuid.UUID][]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []userRoleRow
+	if err := s.DB.Raw(
+		`SELECT ur.user_id, r.code FROM auth_roles r JOIN auth_user_roles ur ON ur.role_id = r.id WHERE ur.user_id IN ?`,
+		ids,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.UserID] = append(out[row.UserID], row.Code)
+	}
+	return out, nil
+}
+
+// IdentitiesByUserIDs 批量读身份，返回 user_id → 身份列表（按 created_at 升序，
+// 与 IdentitiesOf 一致，保证手机号/邮箱的取值顺序稳定）。
+func (s *Store) IdentitiesByUserIDs(ids []uuid.UUID) (map[uuid.UUID][]models.Identity, error) {
+	out := make(map[uuid.UUID][]models.Identity, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var list []models.Identity
+	if err := s.DB.Where("user_id IN ?", ids).Order("created_at").Find(&list).Error; err != nil {
+		return nil, err
+	}
+	for _, ident := range list {
+		out[ident.UserID] = append(out[ident.UserID], ident)
+	}
+	return out, nil
+}
+
 func (s *Store) FindIdentity(typ, identifier string) (*models.Identity, error) {
 	var ident models.Identity
 	err := s.DB.Where("type = ? AND identifier = ?", typ, identifier).First(&ident).Error

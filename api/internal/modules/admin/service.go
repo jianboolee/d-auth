@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
 	"github.com/jianboolee/d-auth/internal/modules/store"
+	"github.com/jianboolee/d-auth/internal/modules/usercache"
 	"github.com/jianboolee/d-auth/internal/normalize"
 	"gorm.io/gorm"
 )
@@ -22,10 +24,13 @@ import (
 type Service struct {
 	cfg   *config.Config
 	store *store.Store
+	// cache 缓存组装好的用户资料。后台的每个写操作都会改动资料、角色或身份，
+	// 因此写完都要 Del，否则业务端最多在 TTL 内看到旧数据。
+	cache *usercache.Cache
 }
 
-func New(cfg *config.Config, st *store.Store) *Service {
-	return &Service{cfg: cfg, store: st}
+func New(cfg *config.Config, st *store.Store, cache *usercache.Cache) *Service {
+	return &Service{cfg: cfg, store: st, cache: cache}
 }
 
 type UserListQuery struct {
@@ -34,6 +39,12 @@ type UserListQuery struct {
 	Role   string
 	Page   int
 	Size   int
+}
+
+// invalidate 让某个用户的资料缓存立即作废。后台写操作改的都是会出现在
+// 用户资料里的字段，写完必须调用它；漏掉只会在 TTL 内返回旧数据。
+func (s *Service) invalidate(id uuid.UUID) {
+	s.cache.Del(context.Background(), id)
 }
 
 func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
@@ -144,6 +155,7 @@ func (s *Service) CreateUser(in CreateUserInput) (dto.User, error) {
 	if err != nil {
 		return dto.User{}, err
 	}
+	s.invalidate(user.ID)
 	u, _, _, err := s.GetUser(user.ID)
 	return u, err
 }
@@ -173,6 +185,7 @@ func (s *Service) PatchUser(id uuid.UUID, nickname *string, status *string, role
 		_ = s.store.DB.Model(&models.Session{}).Where("user_id = ? AND revoked_at IS NULL", id).
 			Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
 	}
+	s.invalidate(id)
 	u, _, _, err := s.GetUser(id)
 	return u, err
 }
@@ -233,6 +246,7 @@ func (s *Service) SetUserIdentity(id uuid.UUID, typ, raw string) (dto.User, erro
 		}
 		return dto.User{}, err
 	}
+	s.invalidate(id)
 	u, _, _, err := s.GetUser(id)
 	return u, err
 }
@@ -250,6 +264,8 @@ func (s *Service) ResetPassword(id uuid.UUID, pass string) error {
 	}).Error; err != nil {
 		return err
 	}
+	// has_password 会出现在资料里（dto.User.HasPassword）。
+	s.invalidate(id)
 	now := time.Now()
 	return s.store.DB.Model(&models.Session{}).Where("user_id = ? AND revoked_at IS NULL", id).
 		Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
@@ -615,17 +631,6 @@ func (s *Service) ListAudit(q string, page, size int) ([]models.AuditLog, int64,
 	var list []models.AuditLog
 	err := tx.Order("created_at DESC").Offset((page - 1) * size).Limit(size).Find(&list).Error
 	return list, total, err
-}
-
-func (s *Service) FindUserByIdentity(typ, identifier string) (*models.User, error) {
-	ident, err := s.store.FindIdentity(typ, identifier)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
-		}
-		return nil, err
-	}
-	return s.store.UserByID(ident.UserID)
 }
 
 func hashKey(full string) string {

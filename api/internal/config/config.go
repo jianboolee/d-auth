@@ -39,6 +39,11 @@ type Config struct {
 	// JWTRefreshTTL；非法时会关闭滑动续期（退回固定过期，而不是每请求写库）。
 	SessionRenewInterval time.Duration
 
+	// UserCacheTTL 是用户资料在 Redis 中的缓存有效期。读取用户资料的接口
+	// （公开资料 / internal）命中缓存可省掉数据库往返，写路径会显式失效，
+	// TTL 只是兜底。配 0 即关闭缓存（回源数据库，功能不受影响）。
+	UserCacheTTL time.Duration
+
 	InitAdminPhone string
 	InitAdminEmail string
 	// CodeTTL 是短信/邮件验证码的有效期，同时用于短信模板里的「X 分钟内有效」。
@@ -154,6 +159,7 @@ func Load() *Config {
 		JWTAccessTTL:             envDuration("DAUTH_JWT_ACCESS_TTL", 15*time.Minute),
 		JWTRefreshTTL:            envDuration("DAUTH_JWT_REFRESH_TTL", 30*24*time.Hour),
 		SessionRenewInterval:     envDuration("DAUTH_SESSION_RENEW_INTERVAL", 24*time.Hour),
+		UserCacheTTL:             envDuration("DAUTH_USER_CACHE_TTL", 60*time.Second),
 		InitAdminPhone:           env("DAUTH_INIT_ADMIN_PHONE", ""),
 		InitAdminEmail:           strings.ToLower(strings.TrimSpace(env("DAUTH_INIT_ADMIN_EMAIL", ""))),
 		CodeTTL:                  envDuration("DAUTH_CODE_TTL", 5*time.Minute),

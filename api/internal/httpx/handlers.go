@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/contextx"
 	"github.com/jianboolee/d-auth/internal/idgen"
@@ -20,6 +21,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
 	"github.com/jianboolee/d-auth/internal/modules/legal"
+	"github.com/jianboolee/d-auth/internal/modules/profile"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
 	"github.com/jianboolee/d-auth/internal/normalize"
 	"github.com/jianboolee/d-auth/internal/response"
@@ -32,6 +34,8 @@ type Handlers struct {
 	Admin *admin.Service
 	// 字段名不用 Legal：会与下面的 public handler 方法 Legal() 冲突。
 	LegalDocs *legal.Service
+	// Profiles 是缓存优先的用户资料读取，供 /v1/users 与 /v1/internal 共用。
+	Profiles *profile.Service
 }
 
 // setSessionCookieFor 是包级版本，供 middleware 直接调用（那里只有 cfg、没有
@@ -968,13 +972,119 @@ func (h *Handlers) AdminAudit(c *gin.Context) {
 	response.OK(c, gin.H{"items": dto.FromAuditLogs(list), "total": total, "page": page, "size": size})
 }
 
+// UserProfile 是业务端的用户详情：缓存优先，脱敏后返回，roles 折叠成 is_admin。
+func (h *Handlers) UserProfile(c *gin.Context) {
+	id, err := idgen.ParseUserID(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	p, err := h.Profiles.ProfileByID(c.Request.Context(), id)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, p)
+}
+
+// maxQueryIDs 限制批量查询的 id 数量：单次请求不该被用来做全量枚举，
+// 也避免超长 IN 查询拖垮数据库。
+const maxQueryIDs = 100
+
+// UsersQuery 是业务端的批量/匹配查询，三种用法互斥：
+//   - ids=a,b,c   按用户 ID 批量取（最多 100 个，查不到的静默跳过）
+//   - phone=...   按手机号精确匹配
+//   - email=...   按邮箱精确匹配
+//
+// 统一返回 {items,total}，避免同一路径出现两种响应形状。
+func (h *Handlers) UsersQuery(c *gin.Context) {
+	ctx := c.Request.Context()
+	idsRaw := strings.TrimSpace(c.Query("ids"))
+	phone := strings.TrimSpace(c.Query("phone"))
+	email := strings.TrimSpace(c.Query("email"))
+
+	given := 0
+	for _, v := range []string{idsRaw, phone, email} {
+		if v != "" {
+			given++
+		}
+	}
+	if given == 0 {
+		response.Fail(c, http.StatusBadRequest, "INVALID_BODY", "需要 ids、phone 或 email 之一")
+		return
+	}
+	if given > 1 {
+		response.Fail(c, http.StatusBadRequest, "INVALID_BODY", "ids、phone、email 只能提供其中一个")
+		return
+	}
+
+	if idsRaw != "" {
+		parts := strings.Split(idsRaw, ",")
+		if len(parts) > maxQueryIDs {
+			response.Fail(c, http.StatusBadRequest, "TOO_MANY_IDS", "一次最多查询 100 个用户")
+			return
+		}
+		ids := make([]uuid.UUID, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, err := idgen.ParseUserID(part)
+			if err != nil {
+				response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID: "+part)
+				return
+			}
+			ids = append(ids, id)
+		}
+		list, err := h.Profiles.Profiles(ctx, ids)
+		if err != nil {
+			WriteError(c, err)
+			return
+		}
+		response.OK(c, gin.H{"items": list, "total": len(list)})
+		return
+	}
+
+	var (
+		p   dto.Profile
+		err error
+	)
+	if phone != "" {
+		normalized, ok := normalize.Phone(phone)
+		if !ok {
+			response.Fail(c, http.StatusBadRequest, "INVALID_PHONE", "手机号不正确")
+			return
+		}
+		p, err = h.Profiles.ProfileByIdentity(ctx, models.IdentityPhone, normalized)
+	} else {
+		normalized, ok := normalize.Email(email)
+		if !ok {
+			response.Fail(c, http.StatusBadRequest, "INVALID_EMAIL", "邮箱不正确")
+			return
+		}
+		p, err = h.Profiles.ProfileByIdentity(ctx, models.IdentityEmail, normalized)
+	}
+	if err != nil {
+		// 匹配不上不是错误：告诉调用方「0 条」，而不是 404——调用方用它做
+		// 「这个手机号注册过没有」的判断，不该靠捕获异常来区分。
+		if code, _, _ := apperr.CodeOf(err); code == "NOT_FOUND" {
+			response.OK(c, gin.H{"items": []dto.Profile{}, "total": 0})
+			return
+		}
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"items": []dto.Profile{p}, "total": 1})
+}
+
 func (h *Handlers) InternalUser(c *gin.Context) {
 	id, err := idgen.ParseUserID(c.Param("id"))
 	if err != nil {
 		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
 		return
 	}
-	u, _, _, err := h.Admin.GetUser(id)
+	u, err := h.Profiles.UserByID(c.Request.Context(), id)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -992,32 +1102,24 @@ func (h *Handlers) InternalLookup(c *gin.Context) {
 			response.Fail(c, http.StatusBadRequest, "INVALID_PHONE", "手机号不正确")
 			return
 		}
-		user, err := h.Admin.FindUserByIdentity("phone", p)
+		user, err := h.Profiles.UserByIdentity(c.Request.Context(), models.IdentityPhone, p)
 		if err != nil {
 			WriteError(c, err)
 			return
 		}
-		u, _, _, err = h.Admin.GetUser(user.ID)
-		if err != nil {
-			WriteError(c, err)
-			return
-		}
+		u = user
 	} else if email != "" {
 		e, ok := normalize.Email(email)
 		if !ok {
 			response.Fail(c, http.StatusBadRequest, "INVALID_EMAIL", "邮箱不正确")
 			return
 		}
-		user, err := h.Admin.FindUserByIdentity("email", e)
+		user, err := h.Profiles.UserByIdentity(c.Request.Context(), models.IdentityEmail, e)
 		if err != nil {
 			WriteError(c, err)
 			return
 		}
-		u, _, _, err = h.Admin.GetUser(user.ID)
-		if err != nil {
-			WriteError(c, err)
-			return
-		}
+		u = user
 	} else {
 		response.Fail(c, http.StatusBadRequest, "INVALID_BODY", "需要 phone 或 email")
 		return

@@ -185,3 +185,57 @@ func TestFromIdentitiesMasked(t *testing.T) {
 		t.Fatalf("FromIdentities must keep plaintext for admin, got %q", plain[0].Identifier)
 	}
 }
+
+// 公开资料必须脱敏手机号/邮箱：这是 /v1/users 与 internal 接口的分界线。
+func TestFromUserProfileMasksIdentifiers(t *testing.T) {
+	u := dto.User{
+		ID:       "u1",
+		Nickname: "小野驴",
+		Phone:    "+8613800138000",
+		Email:    "zhangsan@example.com",
+		HasPhone: true,
+		Roles:    []string{"user"},
+	}
+	got := dto.FromUserProfile(u)
+	if got.Phone != "138****8000" {
+		t.Fatalf("phone = %q, want masked 138****8000", got.Phone)
+	}
+	if got.Email != "z***n@example.com" {
+		t.Fatalf("email = %q, want masked z***n@example.com", got.Email)
+	}
+	if !got.HasPhone || got.ID != "u1" || got.Nickname != "小野驴" {
+		t.Fatalf("profile lost basic fields: %+v", got)
+	}
+}
+
+// 管理角色决定 is_admin，但角色明细不该出现在公开资料里。
+func TestFromUserProfileIsAdmin(t *testing.T) {
+	cases := []struct {
+		roles []string
+		want  bool
+	}{
+		{[]string{"user"}, false},
+		{nil, false},
+		{[]string{"user", "vip"}, false},
+		{[]string{"admin"}, true},
+		{[]string{"user", "admin"}, true},
+		{[]string{"superadmin"}, true},
+	}
+	for _, tc := range cases {
+		got := dto.FromUserProfile(dto.User{ID: "u", Roles: tc.roles})
+		if got.IsAdmin != tc.want {
+			t.Fatalf("roles %v -> is_admin %v, want %v", tc.roles, got.IsAdmin, tc.want)
+		}
+	}
+}
+
+// 未绑定的空手机/邮箱不能变成 "***"（Masked 已保证，这里守住 Profile 这条出口）。
+func TestFromUserProfileKeepsEmptyIdentifiersEmpty(t *testing.T) {
+	got := dto.FromUserProfile(dto.User{ID: "u"})
+	if got.Phone != "" || got.Email != "" {
+		t.Fatalf("empty identifiers should stay empty, got %q %q", got.Phone, got.Email)
+	}
+	if got.HasPhone {
+		t.Fatal("HasPhone should be false when no phone identity exists")
+	}
+}
