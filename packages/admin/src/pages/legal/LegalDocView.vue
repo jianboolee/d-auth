@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useAdminClient } from "../../client";
 import { isSafeUrl, renderMarkdown, type LegalKind } from "../../legal";
 import { errMessage } from "../../labels";
@@ -10,8 +10,6 @@ const client = useAdminClient();
 const loading = ref(true);
 const failed = ref("");
 const html = ref("");
-
-const title = computed(() => (props.kind === "terms" ? "用户协议" : "隐私政策"));
 
 onMounted(async () => {
   try {
@@ -42,11 +40,9 @@ onMounted(async () => {
   <div class="legal">
     <!-- 加载中不渲染任何内容：避免先闪一下占位页再跳转 -->
     <template v-if="!loading">
-      <h1>{{ title }}</h1>
       <p v-if="failed" class="notice">{{ failed }}</p>
       <!-- html 已由 renderMarkdown 过 DOMPurify 消毒 -->
       <div v-if="html" class="md" v-html="html" />
-      <p v-else-if="!failed" class="notice">内容尚未配置。</p>
     </template>
   </div>
 </template>
@@ -56,11 +52,6 @@ onMounted(async () => {
   max-width: 720px;
   margin: 0 auto;
   padding: 48px 24px;
-}
-h1 {
-  margin: 0 0 20px;
-  font-size: 24px;
-  font-weight: 600;
 }
 .notice {
   color: var(--dauth-text-secondary, #8c8c8c);
@@ -72,6 +63,13 @@ h1 {
   line-height: 1.75;
   color: var(--dauth-text, #1a1a1a);
   word-break: break-word;
+}
+/* 正文首尾自带的外边距会叠在容器内边距上，去掉后与页面顶部对齐 */
+.md :deep(> :first-child) {
+  margin-top: 0;
+}
+.md :deep(> :last-child) {
+  margin-bottom: 0;
 }
 .md :deep(h1),
 .md :deep(h2),
