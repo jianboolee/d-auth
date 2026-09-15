@@ -19,6 +19,7 @@ import PrivacyPage from "./pages/legal/PrivacyPage.vue";
 import ProfilePage from "./pages/account/ProfilePage.vue";
 import SecurityPage from "./pages/account/SecurityPage.vue";
 import SessionsPage from "./pages/account/SessionsPage.vue";
+import AgreementsPage from "./pages/account/AgreementsPage.vue";
 import LegalSettingsPage from "./pages/LegalSettingsPage.vue";
 
 export { setAdminClient, useAdminClient, provideAuthSession, useAuthSession, useAuthPaths, useEmbed, useConfirm };
@@ -40,6 +41,7 @@ export {
   ProfilePage,
   SecurityPage,
   SessionsPage,
+  AgreementsPage,
   LegalSettingsPage,
 };
 
@@ -81,6 +83,7 @@ export function createAuthAccountRoutes(opts: { basePath?: string } = {}): Route
     // 旧的「登录方式」已并入安全页，保留重定向以兼容已有链接
     { path: `${base}/identities`, redirect: `${base}/security` },
     { path: `${base}/sessions`, component: SessionsPage, meta: { title: "会话" } },
+    { path: `${base}/agreements`, component: AgreementsPage, meta: { title: "服务协议" } },
   ];
 }
 
