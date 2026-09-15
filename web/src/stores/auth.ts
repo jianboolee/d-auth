@@ -28,5 +28,9 @@ export const useAuthStore = defineStore("auth", {
       await dauth.logout();
       this.user = null;
     },
+    /** 会话已在服务端失效（如过期）时，只清本地状态，不再调用接口。 */
+    clear() {
+      this.user = null;
+    },
   },
 });

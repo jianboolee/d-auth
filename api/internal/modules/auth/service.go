@@ -329,6 +329,40 @@ func (s *Service) SessionByID(id uuid.UUID) (*models.Session, error) {
 	return &sess, nil
 }
 
+// SlidingRenew 把会话的过期时间顺延为「现在 + JWTRefreshTTL」，实现滑动过期：
+// 只要持续使用就不会掉线，只有连续 TTL 时间不活跃才失效。
+//
+// 不是每个请求都写库，而是用一条带条件的原子 UPDATE 做节流：仅当
+// expires_at 已经落后于 (now + TTL - interval) 时才更新，等价于「距上次延长
+// 已超过 interval」。这样活跃会话最多每 interval 写一次库，同时也避免了
+// 先读后写带来的竞态。
+//
+// 返回是否真的延长了。配置非法（interval <= 0 或 >= TTL）时不做任何事，
+// 退回固定过期 —— 否则会把每个请求都变成一次写入。
+//
+// WHERE 里带 expires_at > now 是必要的：没有它，一个已过期的会话会被下一次
+// 带该 cookie 的请求「复活」。当前调用方 SessionByID 已经先挡了一层，
+// 但把这条约束放在这里才让方法自身安全。
+func (s *Service) SlidingRenew(id uuid.UUID) (bool, error) {
+	interval := s.cfg.SessionRenewInterval
+	ttl := s.cfg.JWTRefreshTTL
+	if interval <= 0 || interval >= ttl {
+		return false, nil
+	}
+	now := time.Now()
+	res := s.store.DB.Model(&models.Session{}).
+		Where("id = ? AND revoked_at IS NULL AND expires_at > ? AND expires_at < ?",
+			id, now, now.Add(ttl-interval)).
+		Updates(map[string]any{
+			"expires_at": now.Add(ttl),
+			"updated_at": now,
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
 func (s *Service) WeChatQRStart(ctx context.Context) (map[string]any, error) {
 	ticket := idgen.NewString()
 	payload := map[string]any{"status": "pending"}

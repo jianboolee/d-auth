@@ -16,6 +16,7 @@ export class DAuthClient {
     apiKey;
     getAccessToken;
     setAccessToken;
+    onUnauthorized;
     constructor(opts) {
         this.baseURL = normalizeBaseURL(opts.baseURL);
         this.apiKey = opts.apiKey?.trim() ?? "";
@@ -34,9 +35,17 @@ export class DAuthClient {
                     else
                         localStorage.removeItem(TOKEN_KEY);
                 });
+        this.onUnauthorized = opts.onUnauthorized;
         if (this.mode === "cookie") {
             this.clearTokens();
         }
+    }
+    /**
+     * 注册会话失效回调。可在客户端创建之后再设置，方便宿主等 router / store
+     * 就绪后再注册（避免 client 与 router 的循环依赖）。
+     */
+    setUnauthorizedHandler(fn) {
+        this.onUnauthorized = fn;
     }
     jwksURL() {
         return `${this.baseURL}${DAUTH_JWKS_PATH}`;
@@ -109,6 +118,16 @@ export class DAuthClient {
                 message: parsed?.message ?? res.statusText,
                 status: res.status,
             };
+            // 会话已失效（不是凭据错误）：通知宿主把人带回登录页。
+            // 用 code 而不是 status 判定，避免把登录失败的 401 也当成掉线。
+            //
+            // 排除 refresh / logout：它们本身就是会话生命周期的管理动作，
+            // 且可能被上面的 401 重试路径内部调用 —— 若不过滤，一次失败会重复
+            // 触发回调，甚至让「登录失败」也误报成掉线。
+            const isSessionEndpoint = path === "/v1/auth/refresh" || path === "/v1/auth/logout";
+            if (err.status === 401 && err.code === "UNAUTHORIZED" && !isSessionEndpoint) {
+                this.onUnauthorized?.();
+            }
             throw err;
         }
         return parsed.data;

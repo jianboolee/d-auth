@@ -150,6 +150,19 @@ func resolveActor(c *gin.Context, cfg *config.Config, authSvc *auth.Service) (*c
 	if err != nil || user.Status != "active" {
 		return nil, nil, errUnauthed
 	}
+	// 滑动过期：持续使用就顺延 expires_at。放在这里而不是探针里，因为
+	// resolveActor 是所有 cookie 认证请求（含 Authenticate / OptionalAuth）的
+	// 唯一入口，这样任意接口的活跃都能续期，而不只是 /v1/auth/session。
+	// 续期成功时同步重发 Cookie，否则浏览器端仍会在旧的 MaxAge 到期。
+	//
+	// 位置在账号状态校验之后：只给「确实还能用」的会话续期，
+	// 不给已停用/已注销账号的残留会话顺延寿命。
+	if renewed, rerr := authSvc.SlidingRenew(sess.ID); rerr != nil {
+		// 续期失败不应影响本次请求：会话此刻仍然有效。
+		slog.Warn("session sliding renew failed", "err", rerr, "session_id", sess.ID)
+	} else if renewed {
+		setSessionCookieFor(c, cfg, sess.ID)
+	}
 	roles, _ := authSvc.Store().RoleCodes(user.ID)
 	cid := uuid.Nil
 	if sess.ClientID != nil {

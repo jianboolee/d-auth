@@ -9,6 +9,13 @@ export type DAuthClientOptions = {
     apiKey?: string;
     getAccessToken?: () => string | null;
     setAccessToken?: (token: string | null) => void;
+    /**
+     * 会话失效（401 UNAUTHORIZED）时的回调，用于把用户带回登录页。
+     *
+     * 只在 code === "UNAUTHORIZED" 时触发：登录接口密码错误同样返回 401，
+     * 但 code 是 INVALID_CREDENTIALS，不应该让用户被"跳转"出去。
+     */
+    onUnauthorized?: () => void;
 };
 export type ApiError = {
     code: string;
@@ -52,7 +59,13 @@ export declare class DAuthClient {
     readonly apiKey: string;
     private getAccessToken;
     private setAccessToken;
+    private onUnauthorized?;
     constructor(opts: DAuthClientOptions);
+    /**
+     * 注册会话失效回调。可在客户端创建之后再设置，方便宿主等 router / store
+     * 就绪后再注册（避免 client 与 router 的循环依赖）。
+     */
+    setUnauthorizedHandler(fn: () => void): void;
     jwksURL(): string;
     persistTokens(res: TokenResult): void;
     clearTokens(): void;

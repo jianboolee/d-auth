@@ -10,6 +10,13 @@ export type DAuthClientOptions = {
   apiKey?: string;
   getAccessToken?: () => string | null;
   setAccessToken?: (token: string | null) => void;
+  /**
+   * 会话失效（401 UNAUTHORIZED）时的回调，用于把用户带回登录页。
+   *
+   * 只在 code === "UNAUTHORIZED" 时触发：登录接口密码错误同样返回 401，
+   * 但 code 是 INVALID_CREDENTIALS，不应该让用户被"跳转"出去。
+   */
+  onUnauthorized?: () => void;
 };
 
 export type ApiError = {
@@ -66,6 +73,7 @@ export class DAuthClient {
   readonly apiKey: string;
   private getAccessToken: () => string | null;
   private setAccessToken: (token: string | null) => void;
+  private onUnauthorized?: () => void;
 
   constructor(opts: DAuthClientOptions) {
     this.baseURL = normalizeBaseURL(opts.baseURL);
@@ -82,9 +90,18 @@ export class DAuthClient {
         if (token) localStorage.setItem(TOKEN_KEY, token);
         else localStorage.removeItem(TOKEN_KEY);
       });
+    this.onUnauthorized = opts.onUnauthorized;
     if (this.mode === "cookie") {
       this.clearTokens();
     }
+  }
+
+  /**
+   * 注册会话失效回调。可在客户端创建之后再设置，方便宿主等 router / store
+   * 就绪后再注册（避免 client 与 router 的循环依赖）。
+   */
+  setUnauthorizedHandler(fn: () => void) {
+    this.onUnauthorized = fn;
   }
 
   jwksURL() {
@@ -159,6 +176,16 @@ export class DAuthClient {
         message: (parsed as { message?: string } | null)?.message ?? res.statusText,
         status: res.status,
       };
+      // 会话已失效（不是凭据错误）：通知宿主把人带回登录页。
+      // 用 code 而不是 status 判定，避免把登录失败的 401 也当成掉线。
+      //
+      // 排除 refresh / logout：它们本身就是会话生命周期的管理动作，
+      // 且可能被上面的 401 重试路径内部调用 —— 若不过滤，一次失败会重复
+      // 触发回调，甚至让「登录失败」也误报成掉线。
+      const isSessionEndpoint = path === "/v1/auth/refresh" || path === "/v1/auth/logout";
+      if (err.status === 401 && err.code === "UNAUTHORIZED" && !isSessionEndpoint) {
+        this.onUnauthorized?.();
+      }
       throw err;
     }
     return (parsed as Envelope<T>).data;

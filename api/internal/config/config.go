@@ -31,7 +31,13 @@ type Config struct {
 	JWTSecret         string
 	JWTPrivateKeyPath string
 	JWTAccessTTL      time.Duration
-	JWTRefreshTTL     time.Duration
+	// JWTRefreshTTL 是会话寿命：cookie 模式下表示「最后活跃后多久过期」，
+	// token 模式下每次 refresh 都会以此重置（见 SessionRenewInterval）。
+	JWTRefreshTTL time.Duration
+	// SessionRenewInterval 是 cookie 会话滑动续期的节流间隔：活跃请求最多每
+	// 这么久延长一次 expires_at，避免每个请求都写库。必须大于 0 且远小于
+	// JWTRefreshTTL；非法时会关闭滑动续期（退回固定过期，而不是每请求写库）。
+	SessionRenewInterval time.Duration
 
 	InitAdminPhone string
 	InitAdminEmail string
@@ -147,6 +153,7 @@ func Load() *Config {
 		JWTPrivateKeyPath:        env("DAUTH_JWT_PRIVATE_KEY_PATH", ""),
 		JWTAccessTTL:             envDuration("DAUTH_JWT_ACCESS_TTL", 15*time.Minute),
 		JWTRefreshTTL:            envDuration("DAUTH_JWT_REFRESH_TTL", 30*24*time.Hour),
+		SessionRenewInterval:     envDuration("DAUTH_SESSION_RENEW_INTERVAL", 24*time.Hour),
 		InitAdminPhone:           env("DAUTH_INIT_ADMIN_PHONE", ""),
 		InitAdminEmail:           strings.ToLower(strings.TrimSpace(env("DAUTH_INIT_ADMIN_EMAIL", ""))),
 		CodeTTL:                  envDuration("DAUTH_CODE_TTL", 5*time.Minute),

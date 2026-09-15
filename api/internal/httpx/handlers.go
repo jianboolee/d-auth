@@ -34,9 +34,16 @@ type Handlers struct {
 	LegalDocs *legal.Service
 }
 
-func (h *Handlers) setSessionCookie(c *gin.Context, sessionID uuid.UUID) {
+// setSessionCookieFor 是包级版本，供 middleware 直接调用（那里只有 cfg、没有
+// Handlers 实例）。Cookie 的 MaxAge 与会话 TTL 同源，所以续期时必须一并重发，
+// 否则数据库里的 expires_at 往后延了、浏览器端 Cookie 仍会在原定时刻失效。
+func setSessionCookieFor(c *gin.Context, cfg *config.Config, sessionID uuid.UUID) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(h.Cfg.CookieName, sessionID.String(), int(h.Cfg.JWTRefreshTTL.Seconds()), "/", h.Cfg.CookieDomain, h.Cfg.CookieSecure, true)
+	c.SetCookie(cfg.CookieName, sessionID.String(), int(cfg.JWTRefreshTTL.Seconds()), "/", cfg.CookieDomain, cfg.CookieSecure, true)
+}
+
+func (h *Handlers) setSessionCookie(c *gin.Context, sessionID uuid.UUID) {
+	setSessionCookieFor(c, h.Cfg, sessionID)
 }
 
 func (h *Handlers) clearCookie(c *gin.Context) {
