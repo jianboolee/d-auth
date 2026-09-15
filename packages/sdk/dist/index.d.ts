@@ -37,6 +37,11 @@ export type User = {
     email?: string;
     last_login_at?: string | null;
     created_at: string;
+    /**
+     * auth_users 行最后一次被修改的时间：改昵称/状态、重置密码、每次登录都会推进。
+     * 不含改绑手机号/邮箱（那写的是 auth_identities，不推进此值）。
+     */
+    updated_at: string;
 };
 export type TokenResult = {
     access_token: string;
@@ -146,12 +151,21 @@ export declare class DAuthClient {
     }>;
     confirmAvatar(object_key: string): Promise<User>;
     uploadAvatar(file: File): Promise<User>;
+    /**
+     * 后台用户列表。created_from / created_to 是 RFC3339 时间范围（端点开区间，
+     * 结束时间通常传「次日 0 点」以包含当天）；sort 支持 created_at /
+     * last_login_at / nickname，order 为 asc | desc。
+     */
     adminUsers(params?: {
         q?: string;
         status?: string;
         role?: string;
         page?: number;
         size?: number;
+        created_from?: string;
+        created_to?: string;
+        sort?: string;
+        order?: string;
     }): Promise<{
         items: User[];
         total: number;

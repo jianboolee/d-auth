@@ -27,6 +27,12 @@ type User struct {
 	Email       string     `json:"email,omitempty"`
 	LastLoginAt *time.Time `json:"last_login_at"`
 	CreatedAt   time.Time  `json:"created_at"`
+	// UpdatedAt 是 auth_users 这一行最后一次被修改的时间：改昵称、改状态、
+	// 重置密码、以及每次登录（会一并更新 last_login_at）都会推进它。
+	//
+	// 注意它不覆盖 auth_identities 的变更——改绑手机号/邮箱写的是身份表，
+	// 不会推进这里的 updated_at（自助改绑与后台改绑都一样）。
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type TokenResult struct {
@@ -83,6 +89,7 @@ func FromUser(u *models.User, roles []string, idents []models.Identity, avatar f
 		HasPassword: u.PasswordHash != nil && *u.PasswordHash != "",
 		LastLoginAt: u.LastLoginAt,
 		CreatedAt:   u.CreatedAt,
+		UpdatedAt:   u.UpdatedAt,
 	}
 	for _, id := range idents {
 		switch id.Type {

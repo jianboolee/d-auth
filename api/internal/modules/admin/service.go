@@ -42,6 +42,59 @@ type UserListQuery struct {
 	Role   string
 	Page   int
 	Size   int
+	// 注册时间范围，RFC3339。为空表示该端不限。
+	CreatedFrom string
+	CreatedTo   string
+	// 排序字段与方向，取值见 userListSortColumns。
+	Sort  string
+	Order string
+
+	// 解析后的时间边界，由 parseUserListQuery 填充，不对外暴露。
+	createdFrom *time.Time
+	createdTo   *time.Time
+}
+
+// userListSortColumns 是允许排序的字段白名单。列名会拼进 ORDER BY，
+// 不能拿请求参数直接拼 SQL，因此只认这张表里的键。
+var userListSortColumns = map[string]string{
+	"created_at":    "created_at",
+	"last_login_at": "last_login_at",
+	"nickname":      "nickname",
+}
+
+// 时间筛选只作用于注册时间，字段名与排序用的 created_at 保持一致。
+func parseUserListQuery(q *UserListQuery) error {
+	if q.CreatedFrom != "" {
+		t, err := time.Parse(time.RFC3339, q.CreatedFrom)
+		if err != nil {
+			return apperr.New(apperr.ErrInvalidArgument, "INVALID_TIME", "created_from 需为 RFC3339 时间")
+		}
+		q.createdFrom = &t
+	}
+	if q.CreatedTo != "" {
+		t, err := time.Parse(time.RFC3339, q.CreatedTo)
+		if err != nil {
+			return apperr.New(apperr.ErrInvalidArgument, "INVALID_TIME", "created_to 需为 RFC3339 时间")
+		}
+		q.createdTo = &t
+	}
+	if q.createdFrom != nil && q.createdTo != nil && q.createdTo.Before(*q.createdFrom) {
+		return apperr.New(apperr.ErrInvalidArgument, "INVALID_TIME_RANGE", "结束时间不能早于开始时间")
+	}
+	if q.Sort == "" {
+		q.Sort = "created_at"
+	}
+	if _, ok := userListSortColumns[q.Sort]; !ok {
+		return apperr.New(apperr.ErrInvalidArgument, "INVALID_SORT", "不支持按该字段排序")
+	}
+	if q.Order == "" {
+		// 默认与原来一致：新注册的排在前面
+		q.Order = "desc"
+	}
+	if q.Order != "asc" && q.Order != "desc" {
+		return apperr.New(apperr.ErrInvalidArgument, "INVALID_ORDER", "排序方向只能是 asc 或 desc")
+	}
+	return nil
 }
 
 // invalidate 让某个用户的资料缓存立即作废。后台写操作改的都是会出现在
@@ -57,6 +110,9 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 	if q.Size < 1 || q.Size > 100 {
 		q.Size = 20
 	}
+	if err := parseUserListQuery(&q); err != nil {
+		return nil, 0, err
+	}
 	tx := s.store.DB.Model(&models.User{}).Where("deleted_at IS NULL")
 	if q.Status != "" {
 		tx = tx.Where("status = ?", q.Status)
@@ -70,12 +126,29 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 	if q.Role != "" {
 		tx = tx.Where(`id IN (SELECT ur.user_id FROM auth_user_roles ur JOIN auth_roles r ON r.id = ur.role_id WHERE r.code = ?)`, q.Role)
 	}
+	// 半开区间 [from, to]：前端把「结束日期」算成次日 0 点传入，这样同一天
+	// 内任意时刻都落进范围，不用去猜用户想不想包含到那天的 23:59:59。
+	if q.createdFrom != nil {
+		tx = tx.Where("created_at >= ?", *q.createdFrom)
+	}
+	if q.createdTo != nil {
+		tx = tx.Where("created_at < ?", *q.createdTo)
+	}
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
+	order := userListSortColumns[q.Sort] + " " + strings.ToUpper(q.Order)
+	// last_login_at 可为 NULL（从未登录）。不指定时 Postgres 在 DESC 下会把
+	// NULL 排在最前，翻页第一屏全是空值，所以固定把空值压在最后。
+	if q.Sort == "last_login_at" {
+		order += " NULLS LAST"
+	}
+	// 再按 id 兜底排序：排序字段可能大量重复（如同一秒注册），没有稳定次序时
+	// 翻页会出现重复行或漏行。
+	order += ", id DESC"
 	var users []models.User
-	if err := tx.Order("created_at DESC").Offset((q.Page - 1) * q.Size).Limit(q.Size).Find(&users).Error; err != nil {
+	if err := tx.Order(order).Offset((q.Page - 1) * q.Size).Limit(q.Size).Find(&users).Error; err != nil {
 		return nil, 0, err
 	}
 	out := make([]dto.User, 0, len(users))

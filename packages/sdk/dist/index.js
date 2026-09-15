@@ -324,6 +324,11 @@ export class DAuthClient {
         }
         return this.confirmAvatar(signed.object_key);
     }
+    /**
+     * 后台用户列表。created_from / created_to 是 RFC3339 时间范围（端点开区间，
+     * 结束时间通常传「次日 0 点」以包含当天）；sort 支持 created_at /
+     * last_login_at / nickname，order 为 asc | desc。
+     */
     adminUsers(params = {}) {
         const qs = new URLSearchParams();
         Object.entries(params).forEach(([k, v]) => {

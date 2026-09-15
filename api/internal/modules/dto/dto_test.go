@@ -2,6 +2,7 @@ package dto_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/config"
@@ -9,6 +10,32 @@ import (
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
 )
+
+// 后台详情页要展示创建/更新/登录三个时间，FromUser 必须把它们都带出来；
+// 从未登录时 LastLoginAt 保持 nil（前端据此显示占位符而不是 Invalid Date）。
+func TestFromUserCarriesTimestamps(t *testing.T) {
+	created := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	updated := time.Date(2026, 9, 2, 11, 30, 0, 0, time.UTC)
+
+	out := dto.FromUser(&models.User{ID: uuid.New(), CreatedAt: created, UpdatedAt: updated},
+		nil, nil, func(string) string { return "" })
+	if !out.CreatedAt.Equal(created) {
+		t.Fatalf("created_at = %v, want %v", out.CreatedAt, created)
+	}
+	if !out.UpdatedAt.Equal(updated) {
+		t.Fatalf("updated_at = %v, want %v", out.UpdatedAt, updated)
+	}
+	if out.LastLoginAt != nil {
+		t.Fatalf("never-logged-in user should expose nil last_login_at, got %v", out.LastLoginAt)
+	}
+
+	loggedIn := updated.Add(time.Hour)
+	out = dto.FromUser(&models.User{ID: uuid.New(), CreatedAt: created, UpdatedAt: updated, LastLoginAt: &loggedIn},
+		nil, nil, func(string) string { return "" })
+	if out.LastLoginAt == nil || !out.LastLoginAt.Equal(loggedIn) {
+		t.Fatalf("last_login_at = %v, want %v", out.LastLoginAt, loggedIn)
+	}
+}
 
 func TestFromUserUsesInjectedAvatarBuilder(t *testing.T) {
 	hash := "hashed"

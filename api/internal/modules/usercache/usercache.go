@@ -24,7 +24,11 @@ import (
 const (
 	// keyPrefix 带版本号：缓存结构变化时改版本即可让旧键自然过期，
 	// 不必写一次扫键的迁移。
-	keyPrefix = "dauth:user:v1:"
+	//
+	// v2：dto.User 新增 updated_at。旧 v1 条目不含该字段，反序列化只会得到
+	// 零值时间（0001-01-01），而 /v1/internal/users 恰好是从缓存取 dto.User
+	// 返回的，会把零值透给调用方。改版本让旧条目不再被读到，比等 TTL 过期稳。
+	keyPrefix = "dauth:user:v2:"
 	// opTimeout 限制单次 Redis 操作的耗时。缓存是可选优化，Redis 变慢时
 	// 应当立刻放弃并回源，而不是拖着请求一起等。
 	opTimeout = 300 * time.Millisecond

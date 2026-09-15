@@ -636,6 +636,9 @@ func (h *Handlers) AdminUsers(c *gin.Context) {
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "20"))
 	list, total, err := h.Admin.ListUsers(admin.UserListQuery{
 		Q: c.Query("q"), Status: c.Query("status"), Role: c.Query("role"), Page: page, Size: size,
+		// 时间与排序参数原样透传，由 service 统一校验（非法值要给出可读的 400）。
+		CreatedFrom: c.Query("created_from"), CreatedTo: c.Query("created_to"),
+		Sort: c.Query("sort"), Order: c.Query("order"),
 	})
 	if err != nil {
 		WriteError(c, err)

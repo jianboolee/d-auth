@@ -13,6 +13,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/infra/database"
 	"github.com/jianboolee/d-auth/internal/models"
+	"github.com/jianboolee/d-auth/internal/modules/dto"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/normalize"
 )
@@ -267,6 +268,214 @@ func uniqueVirtualPhone() string {
 	return "120" + fmt.Sprintf("%08d", n%100000000)
 }
 
+// makeTimedUser 建一个用户并把 created_at 改成指定时间。
+// CreateUser 内部写死 now，时间筛选的用例必须能控制这个值才能断言区间边界。
+func makeTimedUser(t *testing.T, svc *Service, st *store.Store, nickname string, createdAt time.Time, lastLogin *time.Time) *models.User {
+	t.Helper()
+	u := &models.User{Nickname: nickname, Status: models.StatusActive}
+	if err := st.CreateUser(nil, u, models.RoleUser); err != nil {
+		t.Fatalf("create user %s: %v", nickname, err)
+	}
+	if err := st.DB.Model(&models.User{}).Where("id = ?", u.ID).
+		Updates(map[string]any{"created_at": createdAt, "last_login_at": lastLogin}).Error; err != nil {
+		t.Fatalf("set times on %s: %v", nickname, err)
+	}
+	t.Cleanup(func() {
+		// 标识没有级联，先删标识与角色再删用户
+		st.DB.Where("user_id = ?", u.ID).Delete(&models.Identity{})
+		st.DB.Where("user_id = ?", u.ID).Delete(&models.UserRole{})
+		st.DB.Where("id = ?", u.ID).Delete(&models.User{})
+	})
+	return u
+}
+
+// pickNicknames 从结果里挑出指定昵称的出现顺序，便于断言排序结果。
+func pickNicknames(users []dto.User, want map[string]bool) []string {
+	var got []string
+	for _, u := range users {
+		if want[u.Nickname] {
+			got = append(got, u.Nickname)
+		}
+	}
+	return got
+}
+
+// 排序字段是拼进 ORDER BY 的，必须走白名单：直接拼请求参数就是注入。
+// 非法字段、非法方向、非法时间格式都要给出可读的 400，而不是 500 或静默忽略。
+func TestListUsersRejectsInvalidQuery(t *testing.T) {
+	svc, _ := newTestService(t)
+	cases := []struct {
+		name string
+		q    UserListQuery
+		want string
+	}{
+		{"sort injection", UserListQuery{Sort: "created_at; DROP TABLE auth_users"}, "INVALID_SORT"},
+		{"unknown sort column", UserListQuery{Sort: "password_hash"}, "INVALID_SORT"},
+		{"bad order", UserListQuery{Sort: "created_at", Order: "sideways"}, "INVALID_ORDER"},
+		{"bad created_from", UserListQuery{CreatedFrom: "2026-01-01"}, "INVALID_TIME"},
+		{"bad created_to", UserListQuery{CreatedTo: "yesterday"}, "INVALID_TIME"},
+		{
+			"reversed range",
+			UserListQuery{CreatedFrom: "2026-02-01T00:00:00Z", CreatedTo: "2026-01-01T00:00:00Z"},
+			"INVALID_TIME_RANGE",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, _, err := svc.ListUsers(c.q); codeOf(err) != c.want {
+				t.Fatalf("want %s, got %q (err=%v)", c.want, codeOf(err), err)
+			}
+		})
+	}
+}
+
+// 时间筛选按半开区间 [from, to) 过滤注册时间。
+func TestListUsersFiltersByCreatedRange(t *testing.T) {
+	svc, st := newTestService(t)
+
+	base := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	inRange := makeTimedUser(t, svc, st, "range-in", base, nil)
+	before := makeTimedUser(t, svc, st, "range-before", base.Add(-72*time.Hour), nil)
+	after := makeTimedUser(t, svc, st, "range-after", base.Add(72*time.Hour), nil)
+	want := map[string]bool{inRange.Nickname: true, before.Nickname: true, after.Nickname: true}
+
+	list, _, err := svc.ListUsers(UserListQuery{
+		CreatedFrom: base.Add(-24 * time.Hour).Format(time.RFC3339),
+		CreatedTo:   base.Add(24 * time.Hour).Format(time.RFC3339),
+		Size:        100,
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	got := pickNicknames(list, want)
+	if len(got) != 1 || got[0] != inRange.Nickname {
+		t.Fatalf("range filter picked %v, want only %q", got, inRange.Nickname)
+	}
+
+	// 端点语义是「含左不含右」：恰好在 to 上的记录应被排除。
+	exact, _, err := svc.ListUsers(UserListQuery{
+		CreatedFrom: base.Add(-24 * time.Hour).Format(time.RFC3339),
+		CreatedTo:   base.Format(time.RFC3339),
+		Size:        100,
+	})
+	if err != nil {
+		t.Fatalf("list boundary: %v", err)
+	}
+	if got := pickNicknames(exact, want); len(got) != 0 {
+		t.Fatalf("exclusive right bound leaked rows: %v", got)
+	}
+}
+
+// 注册时间与昵称都能双向排序。
+func TestListUsersSorts(t *testing.T) {
+	svc, st := newTestService(t)
+	base := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	// 昵称顺序与时间顺序刻意相反，两个维度的断言才会互相独立
+	older := makeTimedUser(t, svc, st, "sort-zeta", base, nil)
+	newer := makeTimedUser(t, svc, st, "sort-alpha", base.Add(time.Hour), nil)
+	want := map[string]bool{older.Nickname: true, newer.Nickname: true}
+
+	list, _, err := svc.ListUsers(UserListQuery{Sort: "created_at", Order: "asc", Size: 100})
+	if err != nil {
+		t.Fatalf("asc: %v", err)
+	}
+	if got := pickNicknames(list, want); len(got) != 2 || got[0] != older.Nickname {
+		t.Fatalf("created_at asc = %v, want [%s %s]", got, older.Nickname, newer.Nickname)
+	}
+
+	list, _, err = svc.ListUsers(UserListQuery{Sort: "created_at", Order: "desc", Size: 100})
+	if err != nil {
+		t.Fatalf("desc: %v", err)
+	}
+	if got := pickNicknames(list, want); len(got) != 2 || got[0] != newer.Nickname {
+		t.Fatalf("created_at desc = %v, want [%s %s]", got, newer.Nickname, older.Nickname)
+	}
+
+	// 昵称升序应把 sort-alpha 放前面
+	list, _, err = svc.ListUsers(UserListQuery{Sort: "nickname", Order: "asc", Size: 100})
+	if err != nil {
+		t.Fatalf("by nickname: %v", err)
+	}
+	if got := pickNicknames(list, want); len(got) != 2 || got[0] != newer.Nickname {
+		t.Fatalf("nickname asc = %v, want [%s %s]", got, newer.Nickname, older.Nickname)
+	}
+}
+
+// 从未登录的用户 last_login_at 为 NULL。不特殊处理时 Postgres 在 DESC 下把
+// NULL 排在最前，第一屏会全是「—」，所以要求空值固定在末尾。
+func TestListUsersSortByLastLoginPutsNullsLast(t *testing.T) {
+	svc, st := newTestService(t)
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	loggedIn := base.Add(time.Hour)
+	never := makeTimedUser(t, svc, st, "zzz-never-login", base, nil)
+	did := makeTimedUser(t, svc, st, "sort-logged-in", base, &loggedIn)
+	want := map[string]bool{never.Nickname: true, did.Nickname: true}
+
+	for _, order := range []string{"desc", "asc"} {
+		list, _, err := svc.ListUsers(UserListQuery{Sort: "last_login_at", Order: order, Size: 100})
+		if err != nil {
+			t.Fatalf("%s: %v", order, err)
+		}
+		got := pickNicknames(list, want)
+		if len(got) != 2 {
+			t.Fatalf("%s: got %v, want both rows", order, got)
+		}
+		if got[len(got)-1] != never.Nickname {
+			t.Errorf("%s: NULL last_login_at should sort last, got %v", order, got)
+		}
+	}
+}
+
+// 默认查询（不带 sort/order）要保持原行为：按注册时间倒序。
+func TestListUsersDefaultOrderIsNewestFirst(t *testing.T) {
+	svc, st := newTestService(t)
+	base := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	older := makeTimedUser(t, svc, st, "default-older", base, nil)
+	newer := makeTimedUser(t, svc, st, "default-newer", base.Add(time.Hour), nil)
+	want := map[string]bool{older.Nickname: true, newer.Nickname: true}
+
+	list, _, err := svc.ListUsers(UserListQuery{Size: 100})
+	if err != nil {
+		t.Fatalf("default: %v", err)
+	}
+	if got := pickNicknames(list, want); len(got) != 2 || got[0] != newer.Nickname {
+		t.Fatalf("default order = %v, want newest first [%s %s]", got, newer.Nickname, older.Nickname)
+	}
+}
+
+// 排序字段大量重复（同一秒注册）时，必须靠 id 兜底才能保证翻页稳定；
+// 否则同一个用户可能在两页各出现一次、另一个用户完全不出现。
+func TestListUsersPaginationIsStableWithTiedSortKeys(t *testing.T) {
+	svc, st := newTestService(t)
+	base := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	want := map[string]bool{}
+	for i := 0; i < 6; i++ {
+		name := fmt.Sprintf("tie-%d", i)
+		// 全部落在同一时刻，制造完全相同的排序键
+		makeTimedUser(t, svc, st, name, base, nil)
+		want[name] = true
+	}
+
+	seen := map[string]int{}
+	for page := 1; page <= 2; page++ {
+		list, _, err := svc.ListUsers(UserListQuery{Sort: "created_at", Order: "desc", Page: page, Size: 3})
+		if err != nil {
+			t.Fatalf("page %d: %v", page, err)
+		}
+		for _, u := range pickNicknames(list, want) {
+			seen[u]++
+		}
+	}
+	if len(seen) != 6 {
+		t.Fatalf("two pages covered %d of 6 tied users: %v", len(seen), seen)
+	}
+	for name, n := range seen {
+		if n != 1 {
+			t.Errorf("user %s appeared %d times across pages", name, n)
+		}
+	}
+}
+
 // 后台建号允许 120 开头的虚拟号：通过 Phone 会被拒，走 CreateUser 应该能建出来，
 // 且标识按原值存下来（不被套上 +86）。
 func TestCreateUserWithVirtualPhone(t *testing.T) {
@@ -364,6 +573,60 @@ func TestGenerateVirtualPhone(t *testing.T) {
 		if next == phone {
 			t.Fatalf("generator returned the occupied phone %q", phone)
 		}
+	}
+}
+
+// 后台详情页展示 updated_at，所以「哪些操作会推进它」需要是可预期的：
+// 改昵称/状态、重置密码会推进；改绑手机号写的是 auth_identities，不推进
+// auth_users.updated_at（这是仓库既有约定，自助改绑也一样）。
+// 这里把语义钉住，避免以后有人以为它覆盖了所有变更。
+func TestUpdatedAtAdvancesOnUserRowWrites(t *testing.T) {
+	svc, st := newTestService(t)
+	u := makeTimedUser(t, svc, st, "touch-me", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
+
+	readUpdated := func() time.Time {
+		var got models.User
+		if err := st.DB.Where("id = ?", u.ID).First(&got).Error; err != nil {
+			t.Fatalf("reload: %v", err)
+		}
+		return got.UpdatedAt
+	}
+	// 把时间戳压回过去，方便断言「确实被推到更新」
+	rewind := func() time.Time {
+		past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		if err := st.DB.Model(&models.User{}).Where("id = ?", u.ID).
+			Update("updated_at", past).Error; err != nil {
+			t.Fatalf("rewind: %v", err)
+		}
+		return past
+	}
+
+	// 改昵称应推进
+	before := rewind()
+	nick := "touched-nick"
+	if _, err := svc.PatchUser(u.ID, &nick, nil, nil); err != nil {
+		t.Fatalf("patch nickname: %v", err)
+	}
+	if after := readUpdated(); !after.After(before) {
+		t.Errorf("nickname change should advance updated_at: %v -> %v", before, after)
+	}
+
+	// 重置密码应推进
+	before = rewind()
+	if err := svc.ResetPassword(u.ID, "newpassword123"); err != nil {
+		t.Fatalf("reset password: %v", err)
+	}
+	if after := readUpdated(); !after.After(before) {
+		t.Errorf("password reset should advance updated_at: %v -> %v", before, after)
+	}
+
+	// 改绑手机号只写身份表，约定上不推进——守住这条以免语义漂移
+	before = rewind()
+	if _, err := svc.SetUserIdentity(u.ID, models.IdentityPhone, uniqueVirtualPhone()); err != nil {
+		t.Fatalf("set phone: %v", err)
+	}
+	if after := readUpdated(); !after.Equal(before) {
+		t.Errorf("identity rebind writes auth_identities and should not bump auth_users.updated_at: %v -> %v", before, after)
 	}
 }
 

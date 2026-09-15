@@ -140,6 +140,12 @@ onMounted(load);
           <n-descriptions-item label="状态">
             <n-tag :type="user.status === 'active' ? 'success' : 'warning'">{{ statusLabel(user.status) }}</n-tag>
           </n-descriptions-item>
+          <n-descriptions-item label="创建时间">{{ formatDateTime(user.created_at) }}</n-descriptions-item>
+          <n-descriptions-item label="更新时间">{{ formatDateTime(user.updated_at) }}</n-descriptions-item>
+          <n-descriptions-item label="最后登录">
+            <!-- 从未登录过时为 null，用 — 占位而不是 Invalid Date -->
+            {{ user.last_login_at ? formatDateTime(user.last_login_at) : "—" }}
+          </n-descriptions-item>
         </n-descriptions>
         <n-form style="margin-top: 20px" label-placement="top">
           <n-form-item label="昵称">
