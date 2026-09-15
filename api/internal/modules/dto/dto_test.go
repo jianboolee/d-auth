@@ -99,17 +99,17 @@ func TestFromUserExposesUserIDForms(t *testing.T) {
 	}
 }
 
-// 存量的 xid 行（16 个字节全在 0x30..0x53）对外也要按 uuid 渲染输出，
-// 也就是数据库里看到的那串——这正是本次改动要消除的“库里与界面不一致”。
+// 存量那条早期实验写入的行（16 个字节全在 0x30..0x53）对外也要按 uuid 渲染，
+// 也就是数据库里看到的那串——这正是本次改动要消除的「库里与界面不一致」。
+// 这里直接构造字节，不再经由已废弃的 16 位解析路径。
 func TestFromUserRendersPackedRowAsUUID(t *testing.T) {
-	packed, err := idgen.ParseUserID("00tld2hok0w6f2f5")
+	packed, err := uuid.Parse("30304d45-3d32-4148-4430-50363f323f35")
 	if err != nil {
-		t.Fatalf("parse legacy id: %v", err)
+		t.Fatalf("parse stored id: %v", err)
 	}
 	out := dto.FromUser(&models.User{ID: packed}, nil, nil, func(string) string { return "" })
-	const stored = "30304d45-3d32-4148-4430-50363f323f35"
-	if out.ID != stored {
-		t.Fatalf("packed row exposed as %q, want %q (what the uuid column renders)", out.ID, stored)
+	if out.ID != "30304d45-3d32-4148-4430-50363f323f35" {
+		t.Fatalf("packed row exposed as %q, want the uuid column rendering", out.ID)
 	}
 }
 

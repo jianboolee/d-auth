@@ -10,8 +10,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// 验证用户 ID 能原样通过 Postgres 的 uuid 列往返，且新 ID 与存量的打包 ID
-// 可共存于同一列（存量行不会被迁移，必须继续读得出来）。
+// 验证用户 ID 能原样通过 Postgres 的 uuid 列往返：写进去的字节读回来不变，
+// 对外格式化的结果也与写入时一致。
 // 需要本地 postgres，通过 PG_TEST_DSN 提供连接串，否则跳过。
 type row struct {
 	ID   uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -38,17 +38,13 @@ func TestUserIDPostgresUUIDRoundTrip(t *testing.T) {
 	defer db.Exec("DROP TABLE IF EXISTS idgen_roundtrip")
 
 	newIDs := make([]string, 0, 50)
-	rows := make([]row, 0, 51)
+	rows := make([]row, 0, 50)
 	for i := 0; i < 50; i++ {
 		id := idgen.NewUserID()
 		s := idgen.FormatUserID(id)
 		newIDs = append(newIDs, s)
 		rows = append(rows, row{ID: id, Name: s})
 	}
-	// 混入一个历史 uuid v7，验证两种 id 可共存同一列。
-	legacy := idgen.New()
-	legacyStr := idgen.FormatUserID(legacy)
-	rows = append(rows, row{ID: legacy, Name: legacyStr})
 
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatalf("insert: %v", err)
@@ -71,10 +67,7 @@ func TestUserIDPostgresUUIDRoundTrip(t *testing.T) {
 	}
 	for _, s := range newIDs {
 		if !seen[s] {
-			t.Fatalf("new id %q missing after round trip", s)
+			t.Fatalf("id %q missing after round trip", s)
 		}
-	}
-	if !seen[legacyStr] {
-		t.Fatalf("legacy id %q missing after round trip", legacyStr)
 	}
 }

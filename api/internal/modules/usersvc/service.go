@@ -226,8 +226,8 @@ func (s *Service) SignAvatar(userID uuid.UUID, contentType string) (map[string]a
 		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_TYPE", "仅支持 jpeg/png/webp")
 	}
 	// 对象键里用对外的用户 ID 形式（uuid 字符串）。sign 与 confirm 走同一个
-	// 函数，所以校验必然一致。注意：本次 ID 格式统一后，新上传的路径用的是
-	// uuid，而存量文件仍按老的 16 位串目录存放——读取按 key 走，不受影响。
+	// 函数，所以校验必然一致；历史上按 16 位串目录存放的旧文件仍按原 key 读取，
+	// 不受影响。
 	key, upload, pub, headers, err := s.oss.SignPut(contentType, idgen.FormatUserID(userID))
 	if err != nil {
 		return nil, err
