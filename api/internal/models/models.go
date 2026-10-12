@@ -195,6 +195,7 @@ type APIKey struct {
 	ID         uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
 	Name       string     `json:"name"`
 	KeyPrefix  string     `json:"key_prefix"`
+	KeySuffix  string     `json:"key_suffix"`
 	KeyHash    string     `json:"-"`
 	Scopes     TextArray  `gorm:"type:text[]" json:"scopes"`
 	CreatedBy  *string    `gorm:"type:text" json:"created_by"`

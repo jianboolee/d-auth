@@ -348,7 +348,7 @@ export class DAuthClient {
     adminUserSessions(id, params = {}) {
         const qs = new URLSearchParams();
         Object.entries(params).forEach(([k, v]) => {
-            if (v !== undefined && v !== "")
+            if (v !== undefined)
                 qs.set(k, String(v));
         });
         return this.request(`/v1/admin/users/${id}/sessions?${qs.toString()}`);
@@ -451,7 +451,7 @@ export class DAuthClient {
     adminPatchApiKey(id, body) {
         return this.request(`/v1/admin/api-keys/${id}`, { method: "PATCH", body: JSON.stringify(body) });
     }
-    /** 删除接口密钥（物理删除，密钥立即失效且不再出现在列表里）。 */
+    /** 删除 API Key（物理删除，密钥立即失效且不再出现在列表里）。 */
     adminDeleteApiKey(id) {
         return this.request(`/v1/admin/api-keys/${id}`, { method: "DELETE" });
     }
@@ -503,7 +503,7 @@ export class DAuthClient {
 export function createDAuthClient(opts) {
     return new DAuthClient(opts);
 }
-/** Node / 其它后端：用 dak_live_ API Key 调 /v1/internal 与具备 scope 的管理接口 */
+/** Node / 其它后端：用 sk- API Key 调 /v1/internal 与具备 scope 的管理接口 */
 export function createDAuthServiceClient(opts) {
     return new DAuthClient({
         baseURL: opts.baseURL,

@@ -1,31 +1,154 @@
 <script setup lang="ts">
 import { h, onMounted, reactive, ref } from "vue";
-import { NButton, NCard, NDataTable, NForm, NFormItem, NInput, NModal, NSelect, NSpace, NTag, useMessage } from "naive-ui";
+import {
+  NAlert,
+  NButton,
+  NCard,
+  NDataTable,
+  NForm,
+  NFormItem,
+  NInput,
+  NModal,
+  NSelect,
+  NSpace,
+  NTag,
+  NTooltip,
+  useMessage,
+} from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import type { ApiKey } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
+import { copyText } from "../clipboard";
 import { useConfirm } from "../confirm";
 import { formatDateTime } from "../datetime";
-import { errMessage, scopeOptions, statusLabel } from "../labels";
+import { errMessage, expiryOptions } from "../labels";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
 const items = ref<ApiKey[]>([]);
-const show = ref(false);
-const secret = ref("");
-const form = reactive({ name: "", scopes: ["users:read", "users:write"] as string[], days: "0" });
+const loading = ref(false);
 
-function remove(key: ApiKey) {
-  // 最近用过说明可能有服务还在用，提示出来，避免误删导致线上中断
-  const used = key.last_used_at ? `该密钥最近使用于 ${formatDateTime(key.last_used_at)}，删除后使用它的服务会立即失败。` : "";
+/** 创建弹窗：step 为 form 时填表，为 reveal 时展示一次性明文密钥。 */
+const show = ref(false);
+const step = ref<"form" | "reveal">("form");
+const creating = ref(false);
+const secret = ref("");
+const form = reactive({ name: "", days: 0 });
+
+/** 编辑弹窗（仅改名称）。 */
+const showEdit = ref(false);
+const saving = ref(false);
+const editing = ref<ApiKey | null>(null);
+const editName = ref("");
+
+/** 列表里的密钥掩码：sk-前缀…末 4 位。老密钥没有 suffix，退化到只显示前缀。 */
+function maskKey(k: ApiKey) {
+  return k.key_suffix ? `${k.key_prefix}…${k.key_suffix}` : `${k.key_prefix}…`;
+}
+
+async function load() {
+  loading.value = true;
+  try {
+    items.value = await client.adminApiKeys();
+  } catch (e: unknown) {
+    message.error(errMessage(e, "加载失败"));
+  } finally {
+    loading.value = false;
+  }
+}
+
+function openCreate() {
+  form.name = "";
+  form.days = 0;
+  secret.value = "";
+  step.value = "form";
+  show.value = true;
+}
+
+async function create() {
+  if (!form.name.trim()) {
+    message.warning("请填写名称");
+    return;
+  }
+  creating.value = true;
+  try {
+    const res = await client.adminCreateApiKey({ name: form.name.trim(), days: form.days });
+    secret.value = res.secret;
+    step.value = "reveal";
+    await load();
+  } catch (e: unknown) {
+    message.error(errMessage(e, "创建失败"));
+  } finally {
+    creating.value = false;
+  }
+}
+
+async function copySecret() {
+  if (await copyText(secret.value)) {
+    message.success("已复制到剪贴板");
+  } else {
+    message.error("复制失败，请手动选择复制");
+  }
+}
+
+function openEdit(k: ApiKey) {
+  editing.value = k;
+  editName.value = k.name;
+  showEdit.value = true;
+}
+
+async function saveEdit() {
+  if (!editing.value) return;
+  if (!editName.value.trim()) {
+    message.warning("请填写名称");
+    return;
+  }
+  saving.value = true;
+  try {
+    await client.adminPatchApiKey(editing.value.id, { name: editName.value.trim() });
+    message.success("已保存");
+    showEdit.value = false;
+    await load();
+  } catch (e: unknown) {
+    message.error(errMessage(e, "保存失败"));
+  } finally {
+    saving.value = false;
+  }
+}
+
+function toggleStatus(k: ApiKey) {
+  const next = k.status === "active" ? "disabled" : "active";
+  const verb = next === "disabled" ? "停用" : "启用";
   confirm({
-    title: "确认删除接口密钥",
-    content: `确定删除「${key.name}」？${used}`,
+    title: `确认${verb}`,
+    content:
+      next === "disabled"
+        ? `停用后「${k.name}」立即失效，正在使用它的服务会拿到 401。可随时重新启用。`
+        : `启用后「${k.name}」将恢复可用。`,
+    positiveText: verb,
+    onPositiveClick: async () => {
+      try {
+        await client.adminPatchApiKey(k.id, { status: next });
+        message.success(`已${verb}`);
+        await load();
+      } catch (e: unknown) {
+        message.error(errMessage(e, `${verb}失败`));
+      }
+    },
+  });
+}
+
+function remove(k: ApiKey) {
+  // 最近用过说明可能有服务还在用，提示出来，避免误删导致线上中断
+  const used = k.last_used_at ? `该密钥最近使用于 ${formatDateTime(k.last_used_at)}，删除后使用它的服务会立即失败。` : "";
+  confirm({
+    title: "确认删除 API Key",
+    content: `确定删除「${k.name}」？删除后不可恢复。${used}`,
     positiveText: "删除",
     onPositiveClick: async () => {
       try {
-        await client.adminDeleteApiKey(key.id);
+        await client.adminDeleteApiKey(k.id);
         message.success("已删除");
         await load();
       } catch (e: unknown) {
@@ -35,71 +158,138 @@ function remove(key: ApiKey) {
   });
 }
 
+/** 操作列按钮：纯图标 + tooltip，避免文字撑宽表格。 */
+function iconButton(icon: string, label: string, onClick: () => void, type?: "error") {
+  return h(
+    NTooltip,
+    { trigger: "hover" },
+    {
+      trigger: () =>
+        h(
+          NButton,
+          { text: true, type, onClick, "aria-label": label },
+          { default: () => h("i", { class: `${icon} dauth-ri` }) },
+        ),
+      default: () => label,
+    },
+  );
+}
+
 const columns: DataTableColumns<ApiKey> = [
   { title: "名称", key: "name" },
-  { title: "前缀", key: "key_prefix" },
-  { title: "权限范围", key: "scopes", render: (r) => r.scopes.join("、") },
+  { title: "密钥", key: "key_prefix", render: (r) => h("code", { class: "key-mask" }, maskKey(r)) },
   {
     title: "状态",
     key: "status",
-    render: (r) => h(NTag, { size: "small", type: r.status === "active" ? "success" : "warning" }, { default: () => statusLabel(r.status) }),
+    render: (r) =>
+      h(NTag, { size: "small", type: r.status === "active" ? "success" : "warning" }, { default: () => (r.status === "active" ? "正常" : "已停用") }),
   },
+  { title: "创建时间", key: "created_at", render: (r) => formatDateTime(r.created_at) },
+  { title: "到期时间", key: "expires_at", render: (r) => (r.expires_at ? formatDateTime(r.expires_at) : "永不过期") },
   { title: "最近使用", key: "last_used_at", render: (r) => formatDateTime(r.last_used_at) },
   {
     title: "操作",
     key: "op",
     render: (r) =>
-      h(NButton, { text: true, type: "error", onClick: () => remove(r) }, { default: () => "删除" }),
+      h(NSpace, { size: 4 }, {
+        default: () => [
+          iconButton("ri-edit-line", "编辑", () => openEdit(r)),
+          iconButton(
+            r.status === "active" ? "ri-pause-circle-line" : "ri-play-circle-line",
+            r.status === "active" ? "停用" : "启用",
+            () => toggleStatus(r),
+          ),
+          iconButton("ri-delete-bin-line", "删除", () => remove(r), "error"),
+        ],
+      }),
   },
 ];
-
-async function load() {
-  items.value = await client.adminApiKeys();
-}
-
-async function create() {
-  try {
-    const res = await client.adminCreateApiKey({
-      name: form.name,
-      scopes: form.scopes,
-      days: Number(form.days) || 0,
-    });
-    secret.value = res.secret;
-    await load();
-    message.success("请立即复制密钥，之后无法再查看");
-  } catch (e: unknown) {
-    message.error(errMessage(e, "创建失败"));
-  }
-}
 
 onMounted(load);
 </script>
 
 <template>
-  <n-card title="接口密钥" class="d-auth-admin dauth-page wide">
+  <n-card title="API Keys" class="d-auth-admin dauth-page wide">
     <template #header-extra>
-      <n-button type="primary" @click="show = true">
+      <n-button type="primary" @click="openCreate">
         <template #icon><i class="ri-add-line dauth-ri" /></template>
         新建
       </n-button>
     </template>
-    <n-data-table :columns="columns" :data="items">
+    <n-data-table :columns="columns" :data="items" :loading="loading">
       <template #empty>
         <div class="dauth-empty"><i class="ri-inbox-2-line dauth-ri" />暂无数据</div>
       </template>
     </n-data-table>
-    <n-modal v-model:show="show" preset="card" title="新建接口密钥" style="width: 520px" @after-leave="secret = ''">
-      <n-form label-placement="top">
-        <n-form-item label="名称"><n-input v-model:value="form.name" /></n-form-item>
-        <n-form-item label="权限范围">
-          <n-select v-model:value="form.scopes" multiple :options="scopeOptions" />
+    <p class="hint">
+      API Key 供后端服务调用 d-auth 接口使用，具有完整的用户读写能力，密钥只在创建时显示一次 ——
+      请只保存在服务端，不要放进浏览器或客户端，否则会泄露。停用或删除会立即生效。
+    </p>
+
+    <!-- 创建：填表 → 展示密钥，两步在同一弹窗内切换 -->
+    <n-modal
+      v-model:show="show"
+      preset="card"
+      :title="step === 'form' ? '新建 API Key' : '已创建 API Key'"
+      style="width: 520px"
+      :mask-closable="false"
+      @after-leave="secret = ''"
+    >
+      <n-form v-if="step === 'form'" label-placement="top">
+        <n-form-item label="名称">
+          <n-input v-model:value="form.name" placeholder="如 订单服务" />
         </n-form-item>
-        <n-form-item label="有效天数"><n-input v-model:value="form.days" placeholder="0 表示不过期" /></n-form-item>
+        <n-form-item label="有效期">
+          <n-select v-model:value="form.days" :options="expiryOptions" />
+        </n-form-item>
       </n-form>
-      <n-space vertical style="margin-top: 12px">
-        <n-button type="primary" @click="create">创建</n-button>
-        <n-input v-if="secret" :value="secret" readonly type="textarea" />
+      <template v-else>
+        <n-alert type="warning" :show-icon="true" title="请立即复制，关闭后无法再次查看">
+          这是密钥唯一的明文展示，d-auth 只保存它的哈希，之后无法找回。
+        </n-alert>
+        <div class="dauth-code-row reveal-row">
+          <n-input :value="secret" readonly class="key-mask" />
+          <n-button type="primary" @click="copySecret">
+            <template #icon><i class="ri-file-copy-line dauth-ri" /></template>
+            复制
+          </n-button>
+        </div>
+      </template>
+      <n-space justify="end" style="margin-top: 12px">
+        <template v-if="step === 'form'">
+          <n-button @click="show = false">取消</n-button>
+          <n-button type="primary" :loading="creating" @click="create">创建</n-button>
+        </template>
+        <n-button v-else type="primary" @click="show = false">完成</n-button>
+      </n-space>
+    </n-modal>
+
+    <!-- 编辑：仅改名称 -->
+    <n-modal v-model:show="showEdit" preset="card" title="编辑 API Key" style="width: 460px">
+      <n-form label-placement="top">
+        <n-form-item label="名称"><n-input v-model:value="editName" /></n-form-item>
+      </n-form>
+      <n-space justify="end" style="margin-top: 12px">
+        <n-button @click="showEdit = false">取消</n-button>
+        <n-button type="primary" :loading="saving" @click="saveEdit">保存</n-button>
       </n-space>
     </n-modal>
   </n-card>
 </template>
+
+<style scoped>
+.hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dauth-text-secondary, #8c8c8c);
+}
+/* 明文密钥行：与上方警告留出间距 */
+.reveal-row {
+  margin-top: 12px;
+}
+.key-mask {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+</style>

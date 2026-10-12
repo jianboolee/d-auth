@@ -678,27 +678,29 @@ func (s *Service) ListAPIKeys() ([]models.APIKey, error) {
 	return list, err
 }
 
-func (s *Service) CreateAPIKey(name string, scopes []string, createdBy string, days int) (*models.APIKey, string, error) {
-	raw, err := secret.RandomToken(24)
+// APIKeyDefaultScopes 是新建 API Key 固定的权限：读写用户。控制台不提供按密钥
+// 收窄权限的入口，任何一把密钥拿到就是完整的用户读写能力。
+var APIKeyDefaultScopes = []string{"users:read", "users:write"}
+
+func (s *Service) CreateAPIKey(name string, createdBy string, days int) (*models.APIKey, string, error) {
+	body, err := secret.RandomAlnum(32)
 	if err != nil {
 		return nil, "", err
 	}
-	full := "dak_live_" + raw
+	full := "sk-" + body
 	prefix := store.PrefixOfAPIKey(full)
 	var exp *time.Time
 	if days > 0 {
 		t := time.Now().Add(time.Duration(days) * 24 * time.Hour)
 		exp = &t
 	}
-	if len(scopes) == 0 {
-		scopes = []string{"users:read"}
-	}
 	k := models.APIKey{
 		ID:        idgen.New(),
 		Name:      name,
 		KeyPrefix: prefix,
+		KeySuffix: store.SuffixOfAPIKey(full),
 		KeyHash:   hashKey(full),
-		Scopes:    scopes,
+		Scopes:    models.TextArray(APIKeyDefaultScopes),
 		CreatedBy: &createdBy,
 		ExpiresAt: exp,
 		Status:    models.StatusActive,
@@ -710,17 +712,20 @@ func (s *Service) CreateAPIKey(name string, scopes []string, createdBy string, d
 	return &k, full, nil
 }
 
-func (s *Service) PatchAPIKey(id uuid.UUID, status *string, scopes []string) (*models.APIKey, error) {
+func (s *Service) PatchAPIKey(id uuid.UUID, name, status *string) (*models.APIKey, error) {
 	var k models.APIKey
 	if err := s.store.DB.Where("id = ?", id).First(&k).Error; err != nil {
 		return nil, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "密钥不存在")
 	}
 	updates := map[string]any{}
+	if name != nil {
+		n := strings.TrimSpace(*name)
+		if n != "" {
+			updates["name"] = n
+		}
+	}
 	if status != nil {
 		updates["status"] = *status
-	}
-	if scopes != nil {
-		updates["scopes"] = models.TextArray(scopes)
 	}
 	if len(updates) == 0 {
 		return &k, nil
@@ -732,7 +737,7 @@ func (s *Service) PatchAPIKey(id uuid.UUID, status *string, scopes []string) (*m
 	return &k, nil
 }
 
-// DeleteAPIKey 删除接口密钥。这里做物理删除：密钥的 key_hash 是唯一凭据，
+// DeleteAPIKey 删除 API Key。这里做物理删除：密钥的 key_hash 是唯一凭据，
 // 删掉即彻底失效，符合「删除」的直觉；列表里也不再显示，避免被误当成仍可用。
 // 审计日志里的 api_key_id 不受影响（auth_audit_logs.api_key_id 没有外键），
 // 仍保留历史记录，只是该 id 不再对应到任何密钥。

@@ -92,7 +92,7 @@ const auth = createDAuthClient({
 }
 ```
 
-其它 **Go 服务不要 import 本模块**。推荐 **HS256**：设置 `DAUTH_JWT_SECRET`（或 `JWT_SECRET`）后按该算法签发，其它服务用同一把密钥验 `iss` / `sub` / `roles` / `sid`。未配密钥时仍为 RS256，公钥在 `GET /v1/.well-known/jwks.json`。查改用户用 `Authorization: Bearer dak_live_...`，或：
+其它 **Go 服务不要 import 本模块**。推荐 **HS256**：设置 `DAUTH_JWT_SECRET`（或 `JWT_SECRET`）后按该算法签发，其它服务用同一把密钥验 `iss` / `sub` / `roles` / `sid`。未配密钥时仍为 RS256，公钥在 `GET /v1/.well-known/jwks.json`。查改用户用 `Authorization: Bearer sk-...`，或：
 
 ```ts
 import { createDAuthServiceClient } from "@donktech/d-auth-sdk";
@@ -116,7 +116,7 @@ const user = await auth.internalLookup({ phone: "13800000000" });
 
 `ids` / `phone` / `email` 只能给其中一个，都不给或给多个返回 400 `INVALID_BODY`。
 
-**鉴权**：需要 scope 含 `users:read` 的 API Key（控制台「接口密钥」创建，`dak_live_...`）。这个接口**不接受**浏览器里的用户登录态 —— 业务前端不要直连，请由自己的后端持密钥转发，否则密钥会泄露到浏览器。
+**鉴权**：需要 scope 含 `users:read` 的 API Key（控制台「API Keys」创建，`sk-...`）。这个接口**不接受**浏览器里的用户登录态 —— 业务前端不要直连，请由自己的后端持密钥转发，否则密钥会泄露到浏览器。
 
 **这两个接口的区别**：
 

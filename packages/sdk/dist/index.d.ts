@@ -5,7 +5,7 @@ export type DAuthClientOptions = {
     mode?: DAuthMode;
     /** 对应后台 clients.client_key；Cookie 写操作必填 */
     clientKey?: string;
-    /** 服务端调用用的 dak_live_...，与用户 access_token 互斥优先 */
+    /** 服务端调用用的 sk-... API Key，与用户 access_token 互斥优先 */
     apiKey?: string;
     getAccessToken?: () => string | null;
     setAccessToken?: (token: string | null) => void;
@@ -260,17 +260,16 @@ export declare class DAuthClient {
     adminApiKeys(): Promise<ApiKey[]>;
     adminCreateApiKey(body: {
         name: string;
-        scopes?: string[];
         days?: number;
     }): Promise<{
         api_key: ApiKey;
         secret: string;
     }>;
     adminPatchApiKey(id: string, body: {
+        name?: string;
         status?: string;
-        scopes?: string[];
     }): Promise<ApiKey>;
-    /** 删除接口密钥（物理删除，密钥立即失效且不再出现在列表里）。 */
+    /** 删除 API Key（物理删除，密钥立即失效且不再出现在列表里）。 */
     adminDeleteApiKey(id: string): Promise<{
         ok: boolean;
     }>;
@@ -378,6 +377,8 @@ export type ApiKey = {
     id: string;
     name: string;
     key_prefix: string;
+    /** 密钥明文后 4 位，仅用于列表展示掩码；老密钥为空 */
+    key_suffix?: string;
     scopes: string[];
     status: string;
     expires_at?: string | null;
@@ -394,7 +395,7 @@ export type AuditLog = {
     created_at: string;
 };
 export declare function createDAuthClient(opts: DAuthClientOptions): DAuthClient;
-/** Node / 其它后端：用 dak_live_ API Key 调 /v1/internal 与具备 scope 的管理接口 */
+/** Node / 其它后端：用 sk- API Key 调 /v1/internal 与具备 scope 的管理接口 */
 export declare function createDAuthServiceClient(opts: {
     baseURL: string;
     apiKey: string;

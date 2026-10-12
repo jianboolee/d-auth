@@ -345,6 +345,15 @@ func PrefixOfAPIKey(full string) string {
 	return full[:16]
 }
 
+// SuffixOfAPIKey 取 API Key 的后 4 位，存下来用于列表展示（掩码尾部）。
+// 只作展示，不参与鉴权；老密钥没有这个值，为空即可。
+func SuffixOfAPIKey(full string) string {
+	if len(full) <= 4 {
+		return full
+	}
+	return full[len(full)-4:]
+}
+
 // WriteAudit 写审计日志。actorUser 是用户 ID（可为 nil）；apiKey 是 API Key 的
 // uuid（可为 nil）；target 是被操作的用户 ID（可为 nil）。
 func (s *Store) WriteAudit(actorUser *string, apiKey *uuid.UUID, target *string, action, ip, ua string, meta models.JSONMap) {

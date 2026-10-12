@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"crypto/hmac"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -85,10 +86,11 @@ func resolveActor(c *gin.Context, cfg *config.Config, authSvc *auth.Service) (*c
 	header := strings.TrimSpace(c.GetHeader("Authorization"))
 	if strings.HasPrefix(header, "Bearer ") {
 		raw := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-		if strings.HasPrefix(raw, "dak_live_") {
+		if strings.HasPrefix(raw, "sk-") {
 			prefix := store.PrefixOfAPIKey(raw)
 			key, err := authSvc.Store().FindAPIKeyByPrefix(prefix)
-			if err != nil || key.KeyHash != store.HashToken(raw) {
+			// 用 hmac.Equal 常量时间比较哈希，避免按字节短路带来的时序差异。
+			if err != nil || !hmac.Equal([]byte(key.KeyHash), []byte(store.HashToken(raw))) {
 				return nil, nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "无效的 API Key")
 			}
 			if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {

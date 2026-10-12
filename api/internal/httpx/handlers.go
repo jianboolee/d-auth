@@ -938,9 +938,8 @@ func (h *Handlers) AdminAPIKeys(c *gin.Context) {
 }
 
 type createKeyReq struct {
-	Name   string   `json:"name"`
-	Scopes []string `json:"scopes"`
-	Days   int      `json:"days"`
+	Name string `json:"name"`
+	Days int    `json:"days"`
 }
 
 func (h *Handlers) AdminCreateAPIKey(c *gin.Context) {
@@ -949,7 +948,7 @@ func (h *Handlers) AdminCreateAPIKey(c *gin.Context) {
 		return
 	}
 	a, _ := contextx.GetActor(c)
-	k, secret, err := h.Admin.CreateAPIKey(req.Name, req.Scopes, a.UserID, req.Days)
+	k, secret, err := h.Admin.CreateAPIKey(req.Name, a.UserID, req.Days)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -958,8 +957,8 @@ func (h *Handlers) AdminCreateAPIKey(c *gin.Context) {
 }
 
 type patchKeyReq struct {
-	Status *string  `json:"status"`
-	Scopes []string `json:"scopes"`
+	Name   *string `json:"name"`
+	Status *string `json:"status"`
 }
 
 func (h *Handlers) AdminPatchAPIKey(c *gin.Context) {
@@ -972,7 +971,7 @@ func (h *Handlers) AdminPatchAPIKey(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	k, err := h.Admin.PatchAPIKey(id, req.Status, req.Scopes)
+	k, err := h.Admin.PatchAPIKey(id, req.Name, req.Status)
 	if err != nil {
 		WriteError(c, err)
 		return

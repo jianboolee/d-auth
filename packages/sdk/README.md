@@ -101,7 +101,7 @@ import { createDAuthServiceClient } from "@donktech/d-auth-sdk";
 
 const auth = createDAuthServiceClient({
   baseURL: "https://auth.x-rv.com", // 或 http://host:8680
-  apiKey: process.env.DAUTH_API_KEY!, // dak_live_...
+  apiKey: process.env.DAUTH_API_KEY!, // sk-...
 });
 
  await auth.internalUser(userId);
@@ -112,7 +112,7 @@ await auth.internalLookup({ email: "a@example.com" });
 等价 HTTP：
 
 ```http
-Authorization: Bearer dak_live_...
+Authorization: Bearer sk-...
 GET /v1/internal/users/:id
 GET /v1/internal/users?phone=+86138...
 ```

@@ -71,7 +71,7 @@ export function createAuthAdminRoutes(opts: AdminRouteOptions = {}): RouteRecord
   if (variant === "full") {
     routes.push(
       { path: `${base}/clients`, component: ClientsPage, meta: { title: "应用" } },
-      { path: `${base}/api-keys`, component: ApiKeysPage, meta: { title: "接口密钥" } },
+      { path: `${base}/api-keys`, component: ApiKeysPage, meta: { title: "API Keys" } },
       { path: `${base}/audit`, component: AuditPage, meta: { title: "审计" } },
       { path: `${base}/legal`, component: LegalSettingsPage, meta: { title: "协议配置" } },
     );

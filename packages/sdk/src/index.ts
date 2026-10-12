@@ -6,7 +6,7 @@ export type DAuthClientOptions = {
   mode?: DAuthMode;
   /** 对应后台 clients.client_key；Cookie 写操作必填 */
   clientKey?: string;
-  /** 服务端调用用的 dak_live_...，与用户 access_token 互斥优先 */
+  /** 服务端调用用的 sk-... API Key，与用户 access_token 互斥优先 */
   apiKey?: string;
   getAccessToken?: () => string | null;
   setAccessToken?: (token: string | null) => void;
@@ -465,7 +465,7 @@ export class DAuthClient {
   adminUserSessions(id: string, params: { page?: number; size?: number } = {}) {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined && v !== "") qs.set(k, String(v));
+      if (v !== undefined) qs.set(k, String(v));
     });
     return this.request<{ items: Session[]; total: number; page: number; size: number }>(
       `/v1/admin/users/${id}/sessions?${qs.toString()}`,
@@ -580,18 +580,18 @@ export class DAuthClient {
     return this.request<ApiKey[]>("/v1/admin/api-keys");
   }
 
-  adminCreateApiKey(body: { name: string; scopes?: string[]; days?: number }) {
+  adminCreateApiKey(body: { name: string; days?: number }) {
     return this.request<{ api_key: ApiKey; secret: string }>("/v1/admin/api-keys", {
       method: "POST",
       body: JSON.stringify(body),
     });
   }
 
-  adminPatchApiKey(id: string, body: { status?: string; scopes?: string[] }) {
+  adminPatchApiKey(id: string, body: { name?: string; status?: string }) {
     return this.request<ApiKey>(`/v1/admin/api-keys/${id}`, { method: "PATCH", body: JSON.stringify(body) });
   }
 
-  /** 删除接口密钥（物理删除，密钥立即失效且不再出现在列表里）。 */
+  /** 删除 API Key（物理删除，密钥立即失效且不再出现在列表里）。 */
   adminDeleteApiKey(id: string) {
     return this.request<{ ok: boolean }>(`/v1/admin/api-keys/${id}`, { method: "DELETE" });
   }
@@ -722,6 +722,8 @@ export type ApiKey = {
   id: string;
   name: string;
   key_prefix: string;
+  /** 密钥明文后 4 位，仅用于列表展示掩码；老密钥为空 */
+  key_suffix?: string;
   scopes: string[];
   status: string;
   expires_at?: string | null;
@@ -743,7 +745,7 @@ export function createDAuthClient(opts: DAuthClientOptions) {
   return new DAuthClient(opts);
 }
 
-/** Node / 其它后端：用 dak_live_ API Key 调 /v1/internal 与具备 scope 的管理接口 */
+/** Node / 其它后端：用 sk- API Key 调 /v1/internal 与具备 scope 的管理接口 */
 export function createDAuthServiceClient(opts: { baseURL: string; apiKey: string }) {
   return new DAuthClient({
     baseURL: opts.baseURL,

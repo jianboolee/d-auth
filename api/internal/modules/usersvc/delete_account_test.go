@@ -179,7 +179,7 @@ func TestDeleteAccountUnbindsCreatedAPIKeys(t *testing.T) {
 	id := makeUser(t, st, "+8613800000005")
 
 	k := &models.APIKey{
-		ID: idgen.New(), Name: "test-key", KeyPrefix: "dak_live_test5",
+		ID: idgen.New(), Name: "test-key", KeyPrefix: "sk-test5",
 		KeyHash: "h", Scopes: models.TextArray{"users:read"},
 		CreatedBy: &id, Status: models.StatusActive, CreatedAt: time.Now(),
 	}

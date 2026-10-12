@@ -35,9 +35,12 @@ export const clientTypeOptions = [
   { label: "App", value: "native" },
 ];
 
-export const scopeOptions = [
-  { label: "读取用户", value: "users:read" },
-  { label: "管理用户", value: "users:write" },
+/** API Key 有效期选项；值为天数，0 表示不过期。 */
+export const expiryOptions = [
+  { label: "永不过期", value: 0 },
+  { label: "30 天", value: 30 },
+  { label: "90 天", value: 90 },
+  { label: "1 年", value: 365 },
 ];
 
 export function statusLabel(v: string) {
