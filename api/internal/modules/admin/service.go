@@ -99,7 +99,7 @@ func parseUserListQuery(q *UserListQuery) error {
 
 // invalidate 让某个用户的资料缓存立即作废。后台写操作改的都是会出现在
 // 用户资料里的字段，写完必须调用它；漏掉只会在 TTL 内返回旧数据。
-func (s *Service) invalidate(id uuid.UUID) {
+func (s *Service) invalidate(id string) {
 	s.cache.Del(context.Background(), id)
 }
 
@@ -119,7 +119,7 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 	}
 	if q.Q != "" {
 		like := "%" + q.Q + "%"
-		tx = tx.Where(`id::text ILIKE ? OR nickname ILIKE ? OR id IN (
+		tx = tx.Where(`id ILIKE ? OR nickname ILIKE ? OR id IN (
 			SELECT user_id FROM auth_identities WHERE identifier ILIKE ?
 		)`, like, like, like)
 	}
@@ -145,7 +145,8 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 		order += " NULLS LAST"
 	}
 	// 再按 id 兜底排序：排序字段可能大量重复（如同一秒注册），没有稳定次序时
-	// 翻页会出现重复行或漏行。
+	// 翻页会出现重复行或漏行。用户 ID 现在是随机串，这个兜底只保证「次序稳定」，
+	// 不再代表创建先后（时间序一律看 created_at）。
 	order += ", id DESC"
 	var users []models.User
 	if err := tx.Order(order).Offset((q.Page - 1) * q.Size).Limit(q.Size).Find(&users).Error; err != nil {
@@ -163,7 +164,7 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 // GetUser 只组装详情页需要的基本信息与身份。会话不在这里返回：一个用户可能
 // 有很多条会话，塞进详情响应会让每次打开详情都为它买单，所以改由
 // ListUserSessions 单独分页提供（界面上的「会话记录」入口）。
-func (s *Service) GetUser(id uuid.UUID) (dto.User, []models.Identity, error) {
+func (s *Service) GetUser(id string) (dto.User, []models.Identity, error) {
 	user, err := s.store.UserByID(id)
 	if err != nil {
 		return dto.User{}, nil, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
@@ -178,7 +179,7 @@ func (s *Service) GetUser(id uuid.UUID) (dto.User, []models.Identity, error) {
 // 与自助端 usersvc.Sessions 的差别：那里只列「仍然有效」的会话（用户只需要
 // 管理自己当前登录的设备），后台则是审计视角，已失效与被下线的记录同样要能
 // 看到，所以这里不做 revoked/expired 过滤，由界面用状态列区分。
-func (s *Service) ListUserSessions(id uuid.UUID, page, size int) ([]models.Session, int64, error) {
+func (s *Service) ListUserSessions(id string, page, size int) ([]models.Session, int64, error) {
 	if _, err := s.store.UserByID(id); err != nil {
 		return nil, 0, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
 	}
@@ -267,7 +268,7 @@ func (s *Service) CreateUser(in CreateUserInput) (dto.User, error) {
 	return u, err
 }
 
-func (s *Service) PatchUser(id uuid.UUID, nickname *string, status *string, roles []string) (dto.User, error) {
+func (s *Service) PatchUser(id string, nickname *string, status *string, roles []string) (dto.User, error) {
 	user, err := s.store.UserByID(id)
 	if err != nil {
 		return dto.User{}, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
@@ -301,7 +302,7 @@ func (s *Service) PatchUser(id uuid.UUID, nickname *string, status *string, role
 // 与用户自助改绑需要收验证码不同：管理员操作以管理员身份为凭据）。
 // 只做设置/替换，不支持解绑——手机号是主要登录能力，解绑会让账号失去登录方式。
 // 唯一性由 (type, identifier) 唯一索引保证，这里先查一次给出友好错误，再靠索引兜底并发。
-func (s *Service) SetUserIdentity(id uuid.UUID, typ, raw string) (dto.User, error) {
+func (s *Service) SetUserIdentity(id string, typ, raw string) (dto.User, error) {
 	if _, err := s.store.UserByID(id); err != nil {
 		return dto.User{}, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
 	}
@@ -400,7 +401,7 @@ func (s *Service) GenerateVirtualPhone() (string, error) {
 	return "", apperr.New(apperr.ErrConflict, "PHONE_GENERATE_FAILED", "生成虚拟号失败，请重试")
 }
 
-func (s *Service) ResetPassword(id uuid.UUID, pass string) error {
+func (s *Service) ResetPassword(id string, pass string) error {
 	if !password.ValidPlain(pass) {
 		return apperr.New(apperr.ErrInvalidArgument, "WEAK_PASSWORD", "密码至少 8 位")
 	}
@@ -696,7 +697,7 @@ func (s *Service) ListAPIKeys() ([]models.APIKey, error) {
 	return list, err
 }
 
-func (s *Service) CreateAPIKey(name string, scopes []string, createdBy uuid.UUID, days int) (*models.APIKey, string, error) {
+func (s *Service) CreateAPIKey(name string, scopes []string, createdBy string, days int) (*models.APIKey, string, error) {
 	raw, err := secret.RandomToken(24)
 	if err != nil {
 		return nil, "", err

@@ -39,11 +39,11 @@ func New(cfg *config.Config, st *store.Store, c *codes.Service, oss ossstore.Sto
 
 // invalidate 让某个用户的资料缓存立即作废。所有会改动用户资料的自助写操作
 // 都应调用它；漏掉只会在 TTL 内返回旧数据，不会报错。
-func (s *Service) invalidate(userID uuid.UUID) {
+func (s *Service) invalidate(userID string) {
 	s.cache.Del(context.Background(), userID)
 }
 
-func (s *Service) Me(userID uuid.UUID) (dto.User, error) {
+func (s *Service) Me(userID string) (dto.User, error) {
 	return s.auth.PublicUser(userID)
 }
 
@@ -53,7 +53,7 @@ type PatchMe struct {
 	Gender   *int16  `json:"gender"`
 }
 
-func (s *Service) UpdateMe(userID uuid.UUID, p PatchMe) (dto.User, error) {
+func (s *Service) UpdateMe(userID string, p PatchMe) (dto.User, error) {
 	updates := map[string]any{"updated_at": time.Now()}
 	if p.Nickname != nil {
 		updates["nickname"] = strings.TrimSpace(*p.Nickname)
@@ -73,7 +73,7 @@ func (s *Service) UpdateMe(userID uuid.UUID, p PatchMe) (dto.User, error) {
 
 // ChangePassword 直接设置新密码，不再校验原密码（登录态本身即凭据）。
 // 成功后撤销除当前会话外的其它会话，改密码即让其它设备下线。
-func (s *Service) ChangePassword(userID uuid.UUID, newPass string, sessionID uuid.UUID) error {
+func (s *Service) ChangePassword(userID string, newPass string, sessionID uuid.UUID) error {
 	if !password.ValidPlain(newPass) {
 		return apperr.New(apperr.ErrInvalidArgument, "WEAK_PASSWORD", "密码至少 8 位")
 	}
@@ -96,7 +96,7 @@ func (s *Service) ChangePassword(userID uuid.UUID, newPass string, sessionID uui
 
 // ChangePhone 换绑/首次绑定手机号，只校验新手机号的验证码（bind_phone 场景）。
 // 原来没有手机号时就是绑定（add-phone），有手机号时直接替换。
-func (s *Service) ChangePhone(ctx context.Context, userID uuid.UUID, newPhoneRaw, newCode string) error {
+func (s *Service) ChangePhone(ctx context.Context, userID string, newPhoneRaw, newCode string) error {
 	newPhone, ok := normalize.Phone(newPhoneRaw)
 	if !ok {
 		return apperr.New(apperr.ErrInvalidArgument, "INVALID_PHONE", "手机号不正确")
@@ -122,7 +122,7 @@ func (s *Service) ChangePhone(ctx context.Context, userID uuid.UUID, newPhoneRaw
 	return nil
 }
 
-func (s *Service) BindEmail(ctx context.Context, userID uuid.UUID, emailRaw, code string) error {
+func (s *Service) BindEmail(ctx context.Context, userID string, emailRaw, code string) error {
 	email, ok := normalize.Email(emailRaw)
 	if !ok {
 		return apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
@@ -148,7 +148,7 @@ func (s *Service) BindEmail(ctx context.Context, userID uuid.UUID, emailRaw, cod
 	return nil
 }
 
-func (s *Service) Identities(userID uuid.UUID) ([]models.Identity, error) {
+func (s *Service) Identities(userID string) ([]models.Identity, error) {
 	return s.store.IdentitiesOf(userID)
 }
 
@@ -160,7 +160,7 @@ const DeleteAccountConfirm = "确认注销"
 
 // DeleteAccount 注销账号，抹掉个人信息并释放手机号/邮箱。
 // 这是不可逆操作：调用方（自助接口或后台）负责在此之前完成确认流程。
-func (s *Service) DeleteAccount(userID uuid.UUID, confirm string) error {
+func (s *Service) DeleteAccount(userID string, confirm string) error {
 	if confirm != DeleteAccountConfirm {
 		return apperr.New(apperr.ErrInvalidArgument, "CONFIRM_REQUIRED", "请输入确认文字以完成注销")
 	}
@@ -180,7 +180,7 @@ func (s *Service) DeleteAccount(userID uuid.UUID, confirm string) error {
 }
 
 // guardLastSuperAdmin 在目标用户是超管时，确认还有其它活跃超管可用。
-func (s *Service) guardLastSuperAdmin(userID uuid.UUID) error {
+func (s *Service) guardLastSuperAdmin(userID string) error {
 	roles, err := s.store.RoleCodes(userID)
 	if err != nil {
 		return err
@@ -205,7 +205,7 @@ func (s *Service) guardLastSuperAdmin(userID uuid.UUID) error {
 	return nil
 }
 
-func (s *Service) UnbindIdentity(userID, identID uuid.UUID) error {
+func (s *Service) UnbindIdentity(userID string, identID uuid.UUID) error {
 	list, err := s.store.IdentitiesOf(userID)
 	if err != nil {
 		return err
@@ -224,14 +224,14 @@ func (s *Service) UnbindIdentity(userID, identID uuid.UUID) error {
 	return nil
 }
 
-func (s *Service) Sessions(userID uuid.UUID) ([]models.Session, error) {
+func (s *Service) Sessions(userID string) ([]models.Session, error) {
 	var list []models.Session
 	err := s.store.DB.Where("user_id = ? AND revoked_at IS NULL AND expires_at > ?", userID, time.Now()).
 		Order("created_at DESC").Find(&list).Error
 	return list, err
 }
 
-func (s *Service) RevokeSession(userID, sessionID uuid.UUID) error {
+func (s *Service) RevokeSession(userID string, sessionID uuid.UUID) error {
 	now := time.Now()
 	res := s.store.DB.Model(&models.Session{}).
 		Where("id = ? AND user_id = ? AND revoked_at IS NULL", sessionID, userID).
@@ -245,13 +245,13 @@ func (s *Service) RevokeSession(userID, sessionID uuid.UUID) error {
 	return nil
 }
 
-func (s *Service) SignAvatar(userID uuid.UUID, contentType string) (map[string]any, error) {
+func (s *Service) SignAvatar(userID string, contentType string) (map[string]any, error) {
 	switch contentType {
 	case "image/jpeg", "image/png", "image/webp":
 	default:
 		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_TYPE", "仅支持 jpeg/png/webp")
 	}
-	// 对象键里用对外的用户 ID 形式（uuid 字符串）。sign 与 confirm 走同一个
+	// 对象键里用对外的用户 ID 形式（22 位字母数字串）。sign 与 confirm 走同一个
 	// 函数，所以校验必然一致；历史上按 16 位串目录存放的旧文件仍按原 key 读取，
 	// 不受影响。
 	key, upload, pub, headers, err := s.oss.SignPut(contentType, idgen.FormatUserID(userID))
@@ -266,7 +266,7 @@ func (s *Service) SignAvatar(userID uuid.UUID, contentType string) (map[string]a
 	}, nil
 }
 
-func (s *Service) ConfirmAvatar(userID uuid.UUID, objectKey string) (dto.User, error) {
+func (s *Service) ConfirmAvatar(userID string, objectKey string) (dto.User, error) {
 	key := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
 	if key == "" || !strings.HasPrefix(key, s.cfg.OSSRootDir+"/") || !strings.Contains(key, "/"+idgen.FormatUserID(userID)+"/") {
 		return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_KEY", "无效的头像 key")
@@ -280,7 +280,7 @@ func (s *Service) ConfirmAvatar(userID uuid.UUID, objectKey string) (dto.User, e
 	return s.Me(userID)
 }
 
-func (s *Service) SaveAvatarBytes(userID uuid.UUID, objectKey string, data []byte) (dto.User, error) {
+func (s *Service) SaveAvatarBytes(userID string, objectKey string, data []byte) (dto.User, error) {
 	if err := s.oss.SaveLocal(objectKey, data); err != nil {
 		return dto.User{}, err
 	}

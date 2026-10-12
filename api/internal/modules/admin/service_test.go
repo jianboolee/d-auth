@@ -631,7 +631,7 @@ func TestUpdatedAtAdvancesOnUserRowWrites(t *testing.T) {
 }
 
 // makeSession 为指定用户建一条会话，便于验证会话分页。
-func makeSession(t *testing.T, st *store.Store, userID uuid.UUID, ip string, createdAt time.Time, revoked bool) *models.Session {
+func makeSession(t *testing.T, st *store.Store, userID string, ip string, createdAt time.Time, revoked bool) *models.Session {
 	t.Helper()
 	s := &models.Session{
 		ID:               uuid.New(),
@@ -724,7 +724,7 @@ func TestListUserSessionsScopedToUser(t *testing.T) {
 	mine := makeTimedUser(t, svc, st, "sessions-mine", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
 	other := makeTimedUser(t, svc, st, "sessions-other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
 	t.Cleanup(func() {
-		st.DB.Where("user_id IN ?", []uuid.UUID{mine.ID, other.ID}).Delete(&models.Session{})
+		st.DB.Where("user_id IN ?", []string{mine.ID, other.ID}).Delete(&models.Session{})
 	})
 
 	base := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
@@ -744,7 +744,7 @@ func TestListUserSessionsScopedToUser(t *testing.T) {
 // 用户不存在要报 NOT_FOUND，而不是返回空列表（否则前端无法区分「没会话」和「没这个人」）。
 func TestListUserSessionsMissingUser(t *testing.T) {
 	svc, _ := newTestService(t)
-	if _, _, err := svc.ListUserSessions(uuid.New(), 1, 10); codeOf(err) != "NOT_FOUND" {
+	if _, _, err := svc.ListUserSessions(idgen.NewUserID(), 1, 10); codeOf(err) != "NOT_FOUND" {
 		t.Fatalf("want NOT_FOUND, got %q (err=%v)", codeOf(err), err)
 	}
 }

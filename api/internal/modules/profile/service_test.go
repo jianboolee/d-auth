@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/infra/database"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/store"
@@ -77,7 +77,7 @@ func uniquePhone(t *testing.T) string {
 // makeUser 建一个带手机号的用户并注册清理，同时返回手机号以便断言脱敏结果。
 // cache 可为 nil；非 nil 时一并删掉该用户的缓存键——测试与开发共用同一个 Redis，
 // 不该留下指向已删除用户的条目。
-func makeUser(t *testing.T, st *store.Store, cache *usercache.Cache, nickname string, roles ...string) (uuid.UUID, string) {
+func makeUser(t *testing.T, st *store.Store, cache *usercache.Cache, nickname string, roles ...string) (string, string) {
 	t.Helper()
 	if len(roles) == 0 {
 		roles = []string{models.RoleUser}
@@ -183,9 +183,9 @@ func TestProfilesOrderAndSkipsMissing(t *testing.T) {
 	ctx := context.Background()
 	a, _ := makeUser(t, st, nil, "甲")
 	b, _ := makeUser(t, st, nil, "乙")
-	missing := uuid.New()
+	missing := idgen.NewUserID()
 
-	got, err := svc.Profiles(ctx, []uuid.UUID{b, missing, a})
+	got, err := svc.Profiles(ctx, []string{b, missing, a})
 	if err != nil {
 		t.Fatalf("profiles: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestProfilesWithCache(t *testing.T) {
 	if _, err := svc.UserByID(ctx, a); err != nil {
 		t.Fatalf("warm a: %v", err)
 	}
-	got, err := svc.Profiles(ctx, []uuid.UUID{a, b})
+	got, err := svc.Profiles(ctx, []string{a, b})
 	if err != nil {
 		t.Fatalf("profiles: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestProfilesWithCache(t *testing.T) {
 	if err := st.DB.Model(&models.User{}).Where("id = ?", b).Update("nickname", "乙改").Error; err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	again, err := svc.Profiles(ctx, []uuid.UUID{b})
+	again, err := svc.Profiles(ctx, []string{b})
 	if err != nil {
 		t.Fatalf("second profiles: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestNotFound(t *testing.T) {
 	svc, _, _ := newTestService(t, false)
 	ctx := context.Background()
 
-	_, err := svc.UserByID(ctx, uuid.New())
+	_, err := svc.UserByID(ctx, idgen.NewUserID())
 	if code, _, ok := apperr.CodeOf(err); !ok || code != "NOT_FOUND" {
 		t.Fatalf("UserByID err = %v (code %q), want NOT_FOUND", err, code)
 	}
@@ -292,7 +292,7 @@ func TestByIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("match phone: %v", err)
 	}
-	if p.ID != id.String() {
+	if p.ID != id {
 		t.Fatalf("matched id = %q, want %q", p.ID, id)
 	}
 	// 该用户没有邮箱身份，按邮箱不应匹配到它。
@@ -305,10 +305,10 @@ func TestByIdentity(t *testing.T) {
 	}
 }
 
-// 空 UUID 直接当作不存在，不要拿 uuid.Nil 去查库。
-func TestNilIDIsNotFound(t *testing.T) {
+// 空 ID 直接当作不存在，不要拿空串去查库。
+func TestEmptyIDIsNotFound(t *testing.T) {
 	svc, _, _ := newTestService(t, false)
-	if _, err := svc.UserByID(context.Background(), uuid.Nil); err == nil {
-		t.Fatal("expected NOT_FOUND for uuid.Nil")
+	if _, err := svc.UserByID(context.Background(), ""); err == nil {
+		t.Fatal("expected NOT_FOUND for an empty id")
 	}
 }

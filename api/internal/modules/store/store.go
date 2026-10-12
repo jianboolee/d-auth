@@ -22,7 +22,7 @@ func (s *Store) CreateUser(tx *gorm.DB, u *models.User, roleCodes ...string) err
 	if tx == nil {
 		tx = s.DB
 	}
-	if u.ID == uuid.Nil {
+	if u.ID == "" {
 		u.ID = idgen.NewUserID()
 	}
 	now := time.Now()
@@ -40,7 +40,7 @@ func (s *Store) CreateUser(tx *gorm.DB, u *models.User, roleCodes ...string) err
 	return s.AddRoles(tx, u.ID, roleCodes...)
 }
 
-func (s *Store) AddRoles(tx *gorm.DB, userID uuid.UUID, codes ...string) error {
+func (s *Store) AddRoles(tx *gorm.DB, userID string, codes ...string) error {
 	if tx == nil {
 		tx = s.DB
 	}
@@ -58,7 +58,7 @@ func (s *Store) AddRoles(tx *gorm.DB, userID uuid.UUID, codes ...string) error {
 	return nil
 }
 
-func (s *Store) ReplaceRoles(tx *gorm.DB, userID uuid.UUID, codes []string) error {
+func (s *Store) ReplaceRoles(tx *gorm.DB, userID string, codes []string) error {
 	if tx == nil {
 		tx = s.DB
 	}
@@ -73,7 +73,7 @@ func (s *Store) ReplaceRoles(tx *gorm.DB, userID uuid.UUID, codes []string) erro
 // 没有角色时返回空切片而不是 nil：nil 序列化成 JSON 的 null，而客户端按数组
 // 处理（dto.User.Roles 是 []string），后台用户列表会因此在渲染角色列时崩掉。
 // TextArray.Scan 已经做了同样的归一，这里保持一致。
-func (s *Store) RoleCodes(userID uuid.UUID) ([]string, error) {
+func (s *Store) RoleCodes(userID string) ([]string, error) {
 	var codes []string
 	err := s.DB.Raw(`SELECT r.code FROM auth_roles r JOIN auth_user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ?`, userID).Scan(&codes).Error
 	if codes == nil {
@@ -84,7 +84,7 @@ func (s *Store) RoleCodes(userID uuid.UUID) ([]string, error) {
 
 // UsersByIDs 批量读用户，一次 IN 查询。缺失的 id 不会出现在结果里，
 // 调用方据此发现「查不到」，而不是拿到零值 user。
-func (s *Store) UsersByIDs(ids []uuid.UUID) ([]models.User, error) {
+func (s *Store) UsersByIDs(ids []string) ([]models.User, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -95,15 +95,15 @@ func (s *Store) UsersByIDs(ids []uuid.UUID) ([]models.User, error) {
 
 // userRoleRow 是 RoleCodesByUserIDs 的扫描目标：一条 (user_id, code) 记录。
 type userRoleRow struct {
-	UserID uuid.UUID `gorm:"column:user_id"`
-	Code   string    `gorm:"column:code"`
+	UserID string `gorm:"column:user_id"`
+	Code   string `gorm:"column:code"`
 }
 
 // RoleCodesByUserIDs 批量读用户角色，返回 user_id → 角色代码。
 // 没有角色的用户不会出现在 map 里（而不是空切片）：调用方用它填充结果时
 // 需要区分「查不到该用户」与「用户没有角色」，后者由调用方自行补空切片。
-func (s *Store) RoleCodesByUserIDs(ids []uuid.UUID) (map[uuid.UUID][]string, error) {
-	out := make(map[uuid.UUID][]string, len(ids))
+func (s *Store) RoleCodesByUserIDs(ids []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(ids))
 	if len(ids) == 0 {
 		return out, nil
 	}
@@ -122,8 +122,8 @@ func (s *Store) RoleCodesByUserIDs(ids []uuid.UUID) (map[uuid.UUID][]string, err
 
 // IdentitiesByUserIDs 批量读身份，返回 user_id → 身份列表（按 created_at 升序，
 // 与 IdentitiesOf 一致，保证手机号/邮箱的取值顺序稳定）。
-func (s *Store) IdentitiesByUserIDs(ids []uuid.UUID) (map[uuid.UUID][]models.Identity, error) {
-	out := make(map[uuid.UUID][]models.Identity, len(ids))
+func (s *Store) IdentitiesByUserIDs(ids []string) (map[string][]models.Identity, error) {
+	out := make(map[string][]models.Identity, len(ids))
 	if len(ids) == 0 {
 		return out, nil
 	}
@@ -169,7 +169,7 @@ func (s *Store) FindWechat(unionID, appID, openID string) (*models.Identity, err
 	return &ident, nil
 }
 
-func (s *Store) UserByID(id uuid.UUID) (*models.User, error) {
+func (s *Store) UserByID(id string) (*models.User, error) {
 	var u models.User
 	err := s.DB.Where("id = ? AND deleted_at IS NULL", id).First(&u).Error
 	if err != nil {
@@ -194,7 +194,7 @@ func (s *Store) AddIdentity(tx *gorm.DB, ident *models.Identity) error {
 	return tx.Create(ident).Error
 }
 
-func (s *Store) IdentitiesOf(userID uuid.UUID) ([]models.Identity, error) {
+func (s *Store) IdentitiesOf(userID string) ([]models.Identity, error) {
 	var list []models.Identity
 	err := s.DB.Where("user_id = ?", userID).Order("created_at").Find(&list).Error
 	return list, err
@@ -202,7 +202,7 @@ func (s *Store) IdentitiesOf(userID uuid.UUID) ([]models.Identity, error) {
 
 // ReplaceIdentity 把用户某类身份整体替换为一个新值：先删掉该类已有记录，再写入新的。
 // 手机号/邮箱在业务上是一对一的，(type, identifier) 上有唯一索引兜底并发。
-func (s *Store) ReplaceIdentity(tx *gorm.DB, userID uuid.UUID, typ, identifier string) error {
+func (s *Store) ReplaceIdentity(tx *gorm.DB, userID string, typ, identifier string) error {
 	if tx == nil {
 		tx = s.DB
 	}
@@ -216,7 +216,7 @@ func (s *Store) ReplaceIdentity(tx *gorm.DB, userID uuid.UUID, typ, identifier s
 }
 
 // DeleteIdentities 解绑用户某类身份（删除该类下的所有记录）。
-func (s *Store) DeleteIdentities(tx *gorm.DB, userID uuid.UUID, typ string) error {
+func (s *Store) DeleteIdentities(tx *gorm.DB, userID string, typ string) error {
 	if tx == nil {
 		tx = s.DB
 	}
@@ -251,7 +251,7 @@ func (s *Store) CountActiveSuperAdmins() (int64, error) {
 // 访问控制交给 status=deleted + deleted_at：resolveActor 两条路径都要求 status == active，
 // UserByID/ListUsers 都过滤 deleted_at IS NULL，因此墓碑既不能登录也不会出现在后台列表。
 // 整个过程在一个事务里完成，避免中途失败留下「身份已释放但账号仍能登录」的中间态。
-func (s *Store) DeleteAccount(userID uuid.UUID) error {
+func (s *Store) DeleteAccount(userID string) error {
 	return s.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&models.Identity{}).Error; err != nil {
 			return err
@@ -289,7 +289,7 @@ func IsUniqueViolation(err error) bool {
 
 // HasIdentity 判断用户是否绑定了某类身份，用于「是否已绑手机号」这类轻量检查，
 // 避免为了一个布尔值把整个 identities 列表读出来。
-func (s *Store) HasIdentity(userID uuid.UUID, typ string) (bool, error) {
+func (s *Store) HasIdentity(userID string, typ string) (bool, error) {
 	var n int64
 	err := s.DB.Model(&models.Identity{}).
 		Where("user_id = ? AND type = ?", userID, typ).
@@ -345,7 +345,9 @@ func PrefixOfAPIKey(full string) string {
 	return full[:16]
 }
 
-func (s *Store) WriteAudit(actorUser, apiKey, target *uuid.UUID, action, ip, ua string, meta models.JSONMap) {
+// WriteAudit 写审计日志。actorUser 是用户 ID（可为 nil）；apiKey 是 API Key 的
+// uuid（可为 nil）；target 是被操作的用户 ID（可为 nil）。
+func (s *Store) WriteAudit(actorUser *string, apiKey *uuid.UUID, target *string, action, ip, ua string, meta models.JSONMap) {
 	if meta == nil {
 		meta = models.JSONMap{}
 	}

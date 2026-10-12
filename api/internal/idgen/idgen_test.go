@@ -17,19 +17,17 @@ func TestNewIsV7(t *testing.T) {
 	}
 }
 
-// 用户 ID 现在与其它实体一致：标准 uuid v7。
-func TestNewUserIDIsUUIDv7(t *testing.T) {
+// 用户 ID 是 22 位小写字母数字串，全部字符都在字母表内。
+func TestNewUserIDShape(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		raw := NewUserID()
-		if raw.Version() != 7 {
-			t.Fatalf("got version %d want 7", raw.Version())
+		id := NewUserID()
+		if len(id) != UserIDLen {
+			t.Fatalf("got length %d want %d: %q", len(id), UserIDLen, id)
 		}
-		got := FormatUserID(raw)
-		if _, err := uuid.Parse(got); err != nil {
-			t.Fatalf("FormatUserID returned %q, not a parseable uuid: %v", got, err)
-		}
-		if got != raw.String() {
-			t.Fatalf("FormatUserID should equal the uuid rendering: %q != %q", got, raw.String())
+		for j := 0; j < len(id); j++ {
+			if !strings.ContainsRune(userIDAlphabet, rune(id[j])) {
+				t.Fatalf("id %q has illegal char %q", id, id[j])
+			}
 		}
 	}
 }
@@ -45,15 +43,24 @@ func TestNewUserIDUnique(t *testing.T) {
 	}
 }
 
-// uuid v7 的字符串序与生成顺序一致（前 48 位是毫秒时间戳）。
-func TestNewUserIDTimeOrdered(t *testing.T) {
-	prev := FormatUserID(NewUserID())
-	for i := 0; i < 1000; i++ {
-		cur := FormatUserID(NewUserID())
-		if cur < prev {
-			t.Fatalf("id %q out of order after %q", cur, prev)
+// 字符分布大致均匀：拒绝采样若不生效，前几个字符会明显偏多。
+// 只做粗略上界校验（1e4 个样本、36 个字符，期望每个约 278 次），
+// 用来抓住「取模偏置」这类系统性错误，不做严格统计检验。
+func TestNewUserIDDistribution(t *testing.T) {
+	const n = 10000
+	counts := make(map[byte]int, len(userIDAlphabet))
+	for i := 0; i < n; i++ {
+		id := NewUserID()
+		for j := 0; j < len(id); j++ {
+			counts[id[j]]++
 		}
-		prev = cur
+	}
+	expected := float64(n*UserIDLen) / float64(len(userIDAlphabet))
+	for i := 0; i < len(userIDAlphabet); i++ {
+		c := counts[userIDAlphabet[i]]
+		if float64(c) < expected*0.9 || float64(c) > expected*1.1 {
+			t.Fatalf("char %q appears %d times, expected ~%.0f (bias?)", userIDAlphabet[i], c, expected)
+		}
 	}
 }
 
@@ -65,12 +72,33 @@ func TestFormatParseUserIDRoundTrip(t *testing.T) {
 		t.Fatalf("ParseUserID(%q): %v", s, err)
 	}
 	if back != raw {
-		t.Fatalf("round trip mismatch: %s -> %x -> %x", s, raw, back)
+		t.Fatalf("round trip mismatch: %s -> %s", s, back)
 	}
 }
 
-// 16 位小写字母数字串不再被接受。它不是合法的 uuid，早期那版把 base36 串打包
-// 进 uuid 字节的格式已经废弃——这条把新行为钉住，避免以后有人以为还兼容。
+// FormatUserID 做归一化：去掉两侧空白，输出裸串。
+func TestFormatUserIDTrims(t *testing.T) {
+	id := NewUserID()
+	if got := FormatUserID("  " + id + "\n"); got != id {
+		t.Fatalf("FormatUserID(%q) = %q, want %q", "  "+id+"\n", got, id)
+	}
+}
+
+// uuid 字符串不再被接受：硬切到 22 位格式后，旧 uuid 一律解析失败。
+// 这条把「不再兼容 uuid」钉住，避免以后有人以为还兼容。
+func TestParseUserIDRejectsUUID(t *testing.T) {
+	for _, s := range []string{
+		uuid.NewString(),
+		"00000000-0000-7000-8000-000000000000",
+		"018f3c1a-7b2d-7c4e-8f01-1234567890ab",
+	} {
+		if _, err := ParseUserID(s); err == nil {
+			t.Fatalf("ParseUserID(%q) should fail: uuid form is no longer accepted", s)
+		}
+	}
+}
+
+// 16 位那个更早的 xid 实验形态同样不再被接受。
 func TestParseUserIDRejects16CharForm(t *testing.T) {
 	for _, s := range []string{"00tld2hok0w6f2f5", strings.Repeat("0", 16), "abcdefghijklmnop"} {
 		if _, err := ParseUserID(s); err == nil {
@@ -80,9 +108,25 @@ func TestParseUserIDRejects16CharForm(t *testing.T) {
 }
 
 func TestParseUserIDRejectsInvalid(t *testing.T) {
-	for _, s := range []string{"", "abc", "0123456789ABCDEf", "0123456789abcde-", "0123456789abcdefg"} {
+	for _, s := range []string{
+		"",
+		"abc",
+		strings.Repeat("a", UserIDLen-1),
+		strings.Repeat("a", UserIDLen+1),
+		"0123456789abcdefghijkA", // uppercase, exactly UserIDLen
+		"0123456789abcdefghijk-", // symbol, exactly UserIDLen
+		"0123456789abcdefghijk_", // underscore, exactly UserIDLen
+	} {
 		if _, err := ParseUserID(s); err == nil {
 			t.Fatalf("ParseUserID(%q) should fail", s)
+		}
+	}
+}
+
+func TestParseUserIDAcceptsValid(t *testing.T) {
+	for _, s := range []string{"abcdefghijklmnopqrstuv", "0123456789012345678901"} {
+		if _, err := ParseUserID(s); err != nil {
+			t.Fatalf("ParseUserID(%q) should succeed: %v", s, err)
 		}
 	}
 }

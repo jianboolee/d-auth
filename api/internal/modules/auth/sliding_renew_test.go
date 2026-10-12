@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/config"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/infra/database"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/store"
@@ -40,14 +41,14 @@ func newRenewService(t *testing.T, ttl, interval time.Duration) (*Service, *stor
 	return svc, store.New(db)
 }
 
-func makeSession(t *testing.T, st *store.Store, expiresAt time.Time) (uuid.UUID, uuid.UUID) {
+func makeSession(t *testing.T, st *store.Store, expiresAt time.Time) (string, uuid.UUID) {
 	t.Helper()
 	u := &models.User{Nickname: "renew-test", Status: models.StatusActive}
 	if err := st.CreateUser(nil, u, models.RoleUser); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	s := models.Session{
-		ID: uuid.New(), UserID: u.ID, RefreshTokenHash: "h",
+		ID: idgen.New(), UserID: u.ID, RefreshTokenHash: "h",
 		ExpiresAt: expiresAt, CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	if err := st.DB.Create(&s).Error; err != nil {

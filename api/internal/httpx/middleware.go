@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/contextx"
@@ -14,8 +16,6 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/response"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 func RequestID() gin.HandlerFunc {

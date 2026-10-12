@@ -4,11 +4,9 @@ CREATE TABLE IF NOT EXISTS auth_schema_migrations (
 );
 
 CREATE TABLE IF NOT EXISTS auth_users (
-    -- id 保持 UUID 列类型不变，仍兼容 uuid v7 的格式与长度（16 字节）。
-    -- 新用户的 ID 改为 16 位小写字母数字串（xid 风格），按一字符一字节打包进
-    -- 这 16 字节；历史用户仍是 uuid v7。两者可共存于同一列，旧数据无需迁移。
-    -- 对外由 idgen.FormatUserID 还原成 16 位串，见 internal/idgen。
-    id UUID PRIMARY KEY,
+    -- id 是 22 位小写字母数字串（NanoID 风格，见 internal/idgen），TEXT 存储。
+    -- 库里的值就是对外接口返回的值，两者永远一致。
+    id TEXT PRIMARY KEY,
     nickname TEXT NOT NULL DEFAULT '',
     avatar_key TEXT NOT NULL DEFAULT '',
     bio TEXT NOT NULL DEFAULT '',
@@ -27,7 +25,8 @@ CREATE INDEX IF NOT EXISTS auth_users_created_at_idx ON auth_users (created_at D
 
 CREATE TABLE IF NOT EXISTS auth_identities (
     id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES auth_users (id),
+    -- 用户 ID 是 TEXT（见 auth_users.id）。
+    user_id TEXT NOT NULL REFERENCES auth_users (id),
     type TEXT NOT NULL,
     identifier TEXT NOT NULL,
     extra JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -48,7 +47,8 @@ CREATE TABLE IF NOT EXISTS auth_roles (
 );
 
 CREATE TABLE IF NOT EXISTS auth_user_roles (
-    user_id UUID NOT NULL REFERENCES auth_users (id) ON DELETE CASCADE,
+    -- user_id 是 TEXT（见 auth_users.id）；role_id 仍是 uuid。
+    user_id TEXT NOT NULL REFERENCES auth_users (id) ON DELETE CASCADE,
     role_id UUID NOT NULL REFERENCES auth_roles (id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, role_id)
@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS auth_api_keys (
     key_prefix TEXT NOT NULL UNIQUE,
     key_hash TEXT NOT NULL,
     scopes TEXT[] NOT NULL DEFAULT '{}',
-    created_by UUID REFERENCES auth_users (id),
+    -- created_by 是创建者用户 ID（TEXT，见 auth_users.id）；可为空。
+    created_by TEXT REFERENCES auth_users (id),
     last_used_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ,
     status TEXT NOT NULL DEFAULT 'active',
@@ -83,7 +84,8 @@ CREATE TABLE IF NOT EXISTS auth_api_keys (
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
     id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES auth_users (id),
+    -- user_id 是 TEXT（见 auth_users.id）；client_id 仍是 uuid。
+    user_id TEXT NOT NULL REFERENCES auth_users (id),
     client_id UUID REFERENCES auth_clients (id),
     refresh_token_hash TEXT NOT NULL,
     access_jti TEXT NOT NULL DEFAULT '',
@@ -101,10 +103,11 @@ CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx ON auth_sessions (expire
 
 CREATE TABLE IF NOT EXISTS auth_audit_logs (
     id UUID PRIMARY KEY,
-    actor_user_id UUID,
+    -- actor/target 是用户 ID（TEXT），是历史快照，刻意不加外键。
+    actor_user_id TEXT,
     api_key_id UUID,
     action TEXT NOT NULL,
-    target_user_id UUID,
+    target_user_id TEXT,
     ip TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,

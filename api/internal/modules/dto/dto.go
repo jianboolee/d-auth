@@ -13,7 +13,7 @@ import (
 // HasPhone 表示是否已绑定手机号：手机号是主要登录能力，前端据此决定是否
 // 把用户引导到绑定手机号页。
 type User struct {
-	// uuid 字符串，与数据库 uuid 列的渲染一致。
+	// 22 位小写字母数字串，与数据库 text 列存的完全一致。
 	ID          string     `json:"id"`
 	Nickname    string     `json:"nickname"`
 	AvatarURL   string     `json:"avatar_url"`
@@ -137,7 +137,7 @@ func FromUserProfile(u User) Profile {
 	}
 }
 
-// Identity 对外暴露的绑定身份。user_id 转成对外的用户 ID 形式（uuid 字符串）。
+// Identity 对外暴露的绑定身份。user_id 是用户的 22 位字母数字 ID。
 type Identity struct {
 	ID         uuid.UUID      `json:"id"`
 	UserID     string         `json:"user_id"`
@@ -190,7 +190,7 @@ func FromIdentitiesMasked(list []models.Identity) []Identity {
 	return out
 }
 
-// AuditLog 对外暴露审计记录。actor/target 是用户 ID，同样用 uuid 字符串形式。
+// AuditLog 对外暴露审计记录。actor/target 是用户的 22 位字母数字 ID。
 type AuditLog struct {
 	ID           uuid.UUID  `json:"id"`
 	ActorUserID  *string    `json:"actor_user_id"`

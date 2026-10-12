@@ -594,7 +594,7 @@ func (s *Service) pack(user *models.User, roles []string, access, refresh string
 
 // PublicUser 返回「本人视角」的用户信息，手机号/邮箱脱敏。
 // 后台与 internal 接口不用它——那些走 admin.GetUser，保留明文供管理员核对与编辑。
-func (s *Service) PublicUser(userID uuid.UUID) (dto.User, error) {
+func (s *Service) PublicUser(userID string) (dto.User, error) {
 	user, err := s.store.UserByID(userID)
 	if err != nil {
 		return dto.User{}, err
@@ -624,7 +624,7 @@ func (s *Service) maybePromoteAdmin(user *models.User, phone, email string) {
 	s.cache.Del(context.Background(), user.ID)
 }
 
-func (s *Service) revokeUserSessions(userID, except uuid.UUID) error {
+func (s *Service) revokeUserSessions(userID string, except uuid.UUID) error {
 	now := time.Now()
 	q := s.store.DB.Model(&models.Session{}).Where("user_id = ? AND revoked_at IS NULL", userID)
 	if except != uuid.Nil {

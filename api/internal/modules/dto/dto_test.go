@@ -17,7 +17,7 @@ func TestFromUserCarriesTimestamps(t *testing.T) {
 	created := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	updated := time.Date(2026, 9, 2, 11, 30, 0, 0, time.UTC)
 
-	out := dto.FromUser(&models.User{ID: uuid.New(), CreatedAt: created, UpdatedAt: updated},
+	out := dto.FromUser(&models.User{ID: "u1", CreatedAt: created, UpdatedAt: updated},
 		nil, nil, func(string) string { return "" })
 	if !out.CreatedAt.Equal(created) {
 		t.Fatalf("created_at = %v, want %v", out.CreatedAt, created)
@@ -30,7 +30,7 @@ func TestFromUserCarriesTimestamps(t *testing.T) {
 	}
 
 	loggedIn := updated.Add(time.Hour)
-	out = dto.FromUser(&models.User{ID: uuid.New(), CreatedAt: created, UpdatedAt: updated, LastLoginAt: &loggedIn},
+	out = dto.FromUser(&models.User{ID: "u1", CreatedAt: created, UpdatedAt: updated, LastLoginAt: &loggedIn},
 		nil, nil, func(string) string { return "" })
 	if out.LastLoginAt == nil || !out.LastLoginAt.Equal(loggedIn) {
 		t.Fatalf("last_login_at = %v, want %v", out.LastLoginAt, loggedIn)
@@ -40,7 +40,7 @@ func TestFromUserCarriesTimestamps(t *testing.T) {
 func TestFromUserUsesInjectedAvatarBuilder(t *testing.T) {
 	hash := "hashed"
 	user := &models.User{
-		ID:           uuid.New(),
+		ID:           "u1",
 		Nickname:     "小野驴",
 		AvatarKey:    "uploads/u/a.png",
 		Status:       "active",
@@ -83,7 +83,7 @@ func TestFromUserUsesInjectedAvatarBuilder(t *testing.T) {
 // 邮箱注册/微信登录创建的账号没有手机号，HasPhone 必须是 false，
 // 前端据此引导用户去绑定手机号。
 func TestFromUserHasPhoneFalseWithoutPhoneIdentity(t *testing.T) {
-	user := &models.User{ID: uuid.New(), Nickname: "邮箱用户"}
+	user := &models.User{ID: "u1", Nickname: "邮箱用户"}
 	idents := []models.Identity{
 		{Type: models.IdentityEmail, Identifier: "a@example.com"},
 		{Type: models.IdentityWechatOpen, Identifier: "openid-1"},
@@ -102,7 +102,7 @@ func TestFromUserEmptyAvatarKeyWithRealConfig(t *testing.T) {
 		OSSCDNBase:      "https://cdn.example.com",
 		OSSAvatarSuffix: "?x-oss-process=image/resize,m_fill,w_360,h_360",
 	}
-	user := &models.User{ID: uuid.New(), Nickname: "x", AvatarKey: ""}
+	user := &models.User{ID: "u1", Nickname: "x", AvatarKey: ""}
 
 	out := dto.FromUser(user, nil, nil, cfg.AvatarURL)
 	if out.AvatarURL != "" {
@@ -110,37 +110,19 @@ func TestFromUserEmptyAvatarKeyWithRealConfig(t *testing.T) {
 	}
 }
 
-// 对外的用户 ID 一律是 uuid 字符串，与数据库 uuid 列的渲染一致。
-func TestFromUserExposesUserIDForms(t *testing.T) {
+// 对外的用户 ID 就是 22 位字母数字裸串，与数据库 text 列存的完全一致。
+func TestFromUserExposesUserID(t *testing.T) {
 	fresh := idgen.NewUserID()
 	newUser := dto.FromUser(&models.User{ID: fresh}, nil, nil, func(string) string { return "" })
-	want := idgen.FormatUserID(fresh)
-	if newUser.ID != want || newUser.ID != fresh.String() {
-		t.Fatalf("new user id = %q, want uuid %q", newUser.ID, fresh.String())
+	if newUser.ID != fresh {
+		t.Fatalf("new user id = %q, want %q", newUser.ID, fresh)
 	}
-
-	legacy := idgen.New()
-	oldUser := dto.FromUser(&models.User{ID: legacy}, nil, nil, func(string) string { return "" })
-	if oldUser.ID != legacy.String() {
-		t.Fatalf("legacy user id = %q, want uuid %q", oldUser.ID, legacy.String())
+	if len(newUser.ID) != idgen.UserIDLen {
+		t.Fatalf("new user id length = %d, want %d", len(newUser.ID), idgen.UserIDLen)
 	}
 }
 
-// 存量那条早期实验写入的行（16 个字节全在 0x30..0x53）对外也要按 uuid 渲染，
-// 也就是数据库里看到的那串——这正是本次改动要消除的「库里与界面不一致」。
-// 这里直接构造字节，不再经由已废弃的 16 位解析路径。
-func TestFromUserRendersPackedRowAsUUID(t *testing.T) {
-	packed, err := uuid.Parse("30304d45-3d32-4148-4430-50363f323f35")
-	if err != nil {
-		t.Fatalf("parse stored id: %v", err)
-	}
-	out := dto.FromUser(&models.User{ID: packed}, nil, nil, func(string) string { return "" })
-	if out.ID != "30304d45-3d32-4148-4430-50363f323f35" {
-		t.Fatalf("packed row exposed as %q, want the uuid column rendering", out.ID)
-	}
-}
-
-// identity 与审计日志里的用户 ID 同样用 uuid 字符串形式。
+// identity 与审计日志里的用户 ID 同样是 22 位字母数字串。
 func TestIdentityAndAuditExposeUserIDForms(t *testing.T) {
 	uid := idgen.NewUserID()
 	want := idgen.FormatUserID(uid)

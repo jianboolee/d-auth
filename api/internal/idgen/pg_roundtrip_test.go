@@ -4,23 +4,22 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/idgen"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-// 验证用户 ID 能原样通过 Postgres 的 uuid 列往返：写进去的字节读回来不变，
+// 验证用户 ID 能原样通过 Postgres 的 text 列往返：写进去的字符串读回来不变，
 // 对外格式化的结果也与写入时一致。
 // 需要本地 postgres，通过 PG_TEST_DSN 提供连接串，否则跳过。
 type row struct {
-	ID   uuid.UUID `gorm:"type:uuid;primaryKey"`
+	ID   string `gorm:"type:text;primaryKey"`
 	Name string
 }
 
 func (row) TableName() string { return "idgen_roundtrip" }
 
-func TestUserIDPostgresUUIDRoundTrip(t *testing.T) {
+func TestUserIDPostgresTextRoundTrip(t *testing.T) {
 	dsn := os.Getenv("PG_TEST_DSN")
 	if dsn == "" {
 		t.Skip("PG_TEST_DSN not set")
@@ -32,7 +31,7 @@ func TestUserIDPostgresUUIDRoundTrip(t *testing.T) {
 	if err := db.Exec("DROP TABLE IF EXISTS idgen_roundtrip").Error; err != nil {
 		t.Fatalf("drop: %v", err)
 	}
-	if err := db.Exec("CREATE TABLE idgen_roundtrip (id UUID PRIMARY KEY, name TEXT)").Error; err != nil {
+	if err := db.Exec("CREATE TABLE idgen_roundtrip (id TEXT PRIMARY KEY, name TEXT)").Error; err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	defer db.Exec("DROP TABLE IF EXISTS idgen_roundtrip")

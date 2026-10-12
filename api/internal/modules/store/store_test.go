@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/infra/database"
 	"github.com/jianboolee/d-auth/internal/models"
 )
@@ -43,7 +43,7 @@ func TestRoleCodesReturnsEmptySliceNotNil(t *testing.T) {
 	st := newTestStore(t)
 
 	// 故意绕过 CreateUser：它会默认补上 user 角色，构造不出「无角色」的用户。
-	u := &models.User{ID: uuid.New(), Nickname: "无角色用户", Status: models.StatusActive}
+	u := &models.User{ID: idgen.NewUserID(), Nickname: "无角色用户", Status: models.StatusActive}
 	if err := st.DB.Create(u).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}

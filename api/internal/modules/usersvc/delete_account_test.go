@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/infra/database"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/store"
@@ -48,7 +48,7 @@ func codeOf(err error) string {
 }
 
 // makeUser 建一个带手机号身份与一个会话的活跃用户。
-func makeUser(t *testing.T, st *store.Store, phone string) uuid.UUID {
+func makeUser(t *testing.T, st *store.Store, phone string) string {
 	t.Helper()
 	u := &models.User{Nickname: "注销测试", Status: models.StatusActive}
 	if err := st.CreateUser(nil, u, models.RoleUser); err != nil {
@@ -61,7 +61,7 @@ func makeUser(t *testing.T, st *store.Store, phone string) uuid.UUID {
 		t.Fatalf("add identity: %v", err)
 	}
 	if err := st.DB.Create(&models.Session{
-		ID: uuid.New(), UserID: u.ID, RefreshTokenHash: "h",
+		ID: idgen.New(), UserID: u.ID, RefreshTokenHash: "h",
 		IP: "203.0.113.1", UserAgent: "test-agent",
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
 	}).Error; err != nil {
@@ -179,7 +179,7 @@ func TestDeleteAccountUnbindsCreatedAPIKeys(t *testing.T) {
 	id := makeUser(t, st, "+8613800000005")
 
 	k := &models.APIKey{
-		ID: uuid.New(), Name: "test-key", KeyPrefix: "dak_live_test5",
+		ID: idgen.New(), Name: "test-key", KeyPrefix: "dak_live_test5",
 		KeyHash: "h", Scopes: models.TextArray{"users:read"},
 		CreatedBy: &id, Status: models.StatusActive, CreatedAt: time.Now(),
 	}
@@ -228,7 +228,7 @@ func TestDeleteAccountRefusesLastSuperAdmin(t *testing.T) {
 	svc, st := newTestService(t)
 
 	// 备份现有超管并临时清空其角色，使测试用户成为唯一超管
-	var otherSupers []uuid.UUID
+	var otherSupers []string
 	st.DB.Raw(`SELECT ur.user_id FROM auth_user_roles ur JOIN auth_roles r ON r.id = ur.role_id
 		WHERE r.code = ?`, models.RoleSuperAdmin).Scan(&otherSupers)
 	for _, uid := range otherSupers {

@@ -106,10 +106,10 @@ func resolveAlg(raw, secret string) (string, error) {
 
 func (m *Manager) Alg() string { return m.alg }
 
-func (m *Manager) Sign(userID, sessionID, clientID uuid.UUID, roles []string) (string, string, error) {
+func (m *Manager) Sign(userID string, sessionID, clientID uuid.UUID, roles []string) (string, string, error) {
 	jti := uuid.NewString()
 	now := time.Now()
-	// sub 是 uuid 字符串形式的用户 ID。
+	// sub 是用户 ID（22 位小写字母数字串）。
 	claims := Claims{
 		Roles: roles,
 		RegisteredClaims: jwt.RegisteredClaims{

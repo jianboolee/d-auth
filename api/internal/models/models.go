@@ -127,10 +127,10 @@ func (m *JSONMap) Scan(value any) error {
 }
 
 type User struct {
-	// ID 是 uuid v7（与其它实体一致）。存量行里可能还留着早期 xid 实验写入的
-	// 打包字节（全落在 0x30..0x53），它们在列里同样合法、无需迁移，对外一律按
-	// uuid 渲染输出——这就消除了「库里看到的值与接口返回的值不一致」。
-	ID           uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
+	// ID 是 22 位小写字母数字串（见 internal/idgen.NewUserID）。库里的 text 列
+	// 存的就是这个裸串，接口返回的也是它——「库里看到的值与接口返回的值」永远一致。
+	// 它随机不可排序，任何按时间的排序都走 created_at。
+	ID           string     `gorm:"type:text;primaryKey" json:"id"`
 	Nickname     string     `json:"nickname"`
 	AvatarKey    string     `json:"avatar_key"`
 	Bio          string     `json:"bio"`
@@ -148,7 +148,7 @@ func (User) TableName() string { return "auth_users" }
 
 type Identity struct {
 	ID         uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID     uuid.UUID  `gorm:"type:uuid" json:"user_id"`
+	UserID     string     `gorm:"type:text" json:"user_id"`
 	Type       string     `json:"type"`
 	Identifier string     `json:"identifier"`
 	Extra      JSONMap    `gorm:"type:jsonb" json:"extra"`
@@ -170,7 +170,7 @@ type Role struct {
 func (Role) TableName() string { return "auth_roles" }
 
 type UserRole struct {
-	UserID    uuid.UUID `gorm:"type:uuid;primaryKey" json:"user_id"`
+	UserID    string    `gorm:"type:text;primaryKey" json:"user_id"`
 	RoleID    uuid.UUID `gorm:"type:uuid;primaryKey" json:"role_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -199,7 +199,7 @@ type APIKey struct {
 	KeyPrefix  string     `json:"key_prefix"`
 	KeyHash    string     `json:"-"`
 	Scopes     TextArray  `gorm:"type:text[]" json:"scopes"`
-	CreatedBy  *uuid.UUID `json:"created_by"`
+	CreatedBy  *string    `gorm:"type:text" json:"created_by"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	ExpiresAt  *time.Time `json:"expires_at"`
 	Status     string     `json:"status"`
@@ -210,7 +210,7 @@ func (APIKey) TableName() string { return "auth_api_keys" }
 
 type Session struct {
 	ID               uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID           uuid.UUID  `gorm:"type:uuid" json:"user_id"`
+	UserID           string     `gorm:"type:text" json:"user_id"`
 	ClientID         *uuid.UUID `json:"client_id"`
 	RefreshTokenHash string     `json:"-"`
 	AccessJTI        string     `json:"-"`
@@ -226,10 +226,10 @@ func (Session) TableName() string { return "auth_sessions" }
 
 type AuditLog struct {
 	ID           uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
-	ActorUserID  *uuid.UUID `json:"actor_user_id"`
+	ActorUserID  *string    `gorm:"type:text" json:"actor_user_id"`
 	APIKeyID     *uuid.UUID `json:"api_key_id"`
 	Action       string     `json:"action"`
-	TargetUserID *uuid.UUID `json:"target_user_id"`
+	TargetUserID *string    `gorm:"type:text" json:"target_user_id"`
 	IP           string     `json:"ip"`
 	UserAgent    string     `json:"user_agent"`
 	Metadata     JSONMap    `gorm:"type:jsonb" json:"metadata"`

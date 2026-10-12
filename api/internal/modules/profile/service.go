@@ -10,7 +10,6 @@ package profile
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/jianboolee/d-auth/internal/apperr"
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
@@ -32,15 +31,15 @@ func New(cfg *config.Config, st *store.Store, cache *usercache.Cache) *Service {
 func notFound() error { return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在") }
 
 // UserByID 返回单个用户的明文资料（含完整 roles），供 internal 接口使用。
-func (s *Service) UserByID(ctx context.Context, id uuid.UUID) (dto.User, error) {
-	if id == uuid.Nil {
+func (s *Service) UserByID(ctx context.Context, id string) (dto.User, error) {
+	if id == "" {
 		return dto.User{}, notFound()
 	}
 	return s.load(ctx, id)
 }
 
 // ProfileByID 返回脱敏后的公开资料。
-func (s *Service) ProfileByID(ctx context.Context, id uuid.UUID) (dto.Profile, error) {
+func (s *Service) ProfileByID(ctx context.Context, id string) (dto.Profile, error) {
 	u, err := s.UserByID(ctx, id)
 	if err != nil {
 		return dto.Profile{}, err
@@ -70,7 +69,7 @@ func (s *Service) ProfileByIdentity(ctx context.Context, typ, identifier string)
 
 // Profiles 批量取脱敏资料，返回值顺序与入参 ids 一致，查不到的 id 直接跳过
 // （批量查询的语义是「尽量给」，不是「一个缺失就整体失败」）。
-func (s *Service) Profiles(ctx context.Context, ids []uuid.UUID) ([]dto.Profile, error) {
+func (s *Service) Profiles(ctx context.Context, ids []string) ([]dto.Profile, error) {
 	m, err := s.loadMany(ctx, ids)
 	if err != nil {
 		return nil, err
@@ -85,7 +84,7 @@ func (s *Service) Profiles(ctx context.Context, ids []uuid.UUID) ([]dto.Profile,
 }
 
 // load 读单个用户：缓存优先，未命中则打库（用户 + 角色 + 身份共 3 次查询）并回填。
-func (s *Service) load(ctx context.Context, id uuid.UUID) (dto.User, error) {
+func (s *Service) load(ctx context.Context, id string) (dto.User, error) {
 	if u, ok := s.cache.Get(ctx, id); ok {
 		return u, nil
 	}
@@ -102,15 +101,15 @@ func (s *Service) load(ctx context.Context, id uuid.UUID) (dto.User, error) {
 
 // loadMany 批量读：先 MGET 拿命中，再对缺失部分用 3 条 IN 查询补齐（避免 N+1），
 // 最后把补齐的结果回填。不存在的 id 不会出现在返回值里。
-func (s *Service) loadMany(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]dto.User, error) {
-	out := make(map[uuid.UUID]dto.User, len(ids))
+func (s *Service) loadMany(ctx context.Context, ids []string) (map[string]dto.User, error) {
+	out := make(map[string]dto.User, len(ids))
 	if len(ids) == 0 {
 		return out, nil
 	}
 	for id, u := range s.cache.MGet(ctx, ids) {
 		out[id] = u
 	}
-	var missing []uuid.UUID
+	var missing []string
 	for _, id := range ids {
 		if _, ok := out[id]; !ok {
 			missing = append(missing, id)
@@ -126,7 +125,7 @@ func (s *Service) loadMany(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	if len(users) == 0 {
 		return out, nil
 	}
-	found := make([]uuid.UUID, 0, len(users))
+	found := make([]string, 0, len(users))
 	for i := range users {
 		found = append(found, users[i].ID)
 	}

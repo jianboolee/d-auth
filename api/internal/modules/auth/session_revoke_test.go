@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jianboolee/d-auth/internal/idgen"
 	"github.com/jianboolee/d-auth/internal/infra/database"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/store"
@@ -37,7 +38,7 @@ func newTestService(t *testing.T) (*Service, *store.Store) {
 	return &Service{store: store.New(db)}, store.New(db)
 }
 
-func createTestUser(t *testing.T, st *store.Store) uuid.UUID {
+func createTestUser(t *testing.T, st *store.Store) string {
 	t.Helper()
 	u := &models.User{Nickname: "revoke-test", Status: models.StatusActive}
 	if err := st.CreateUser(nil, u, models.RoleUser); err != nil {
@@ -51,10 +52,10 @@ func createTestUser(t *testing.T, st *store.Store) uuid.UUID {
 	return u.ID
 }
 
-func createSession(t *testing.T, st *store.Store, userID uuid.UUID, refreshToken string) uuid.UUID {
+func createSession(t *testing.T, st *store.Store, userID string, refreshToken string) uuid.UUID {
 	t.Helper()
 	s := models.Session{
-		ID:               uuid.New(),
+		ID:               idgen.New(),
 		UserID:           userID,
 		RefreshTokenHash: store.HashToken(refreshToken),
 		ExpiresAt:        time.Now().Add(24 * time.Hour),

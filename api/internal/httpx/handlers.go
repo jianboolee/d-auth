@@ -1057,7 +1057,7 @@ func (h *Handlers) UsersQuery(c *gin.Context) {
 			response.Fail(c, http.StatusBadRequest, "TOO_MANY_IDS", "一次最多查询 100 个用户")
 			return
 		}
-		ids := make([]uuid.UUID, 0, len(parts))
+		ids := make([]string, 0, len(parts))
 		for _, part := range parts {
 			part = strings.TrimSpace(part)
 			if part == "" {
@@ -1160,12 +1160,12 @@ func (h *Handlers) InternalLookup(c *gin.Context) {
 	response.OK(c, u)
 }
 
-func (h *Handlers) audit(c *gin.Context, action string, target *uuid.UUID, meta map[string]any) {
+func (h *Handlers) audit(c *gin.Context, action string, target *string, meta map[string]any) {
 	a, ok := contextx.GetActor(c)
 	if !ok {
 		return
 	}
-	var actor *uuid.UUID
+	var actor *string
 	var key *uuid.UUID
 	if a.Kind == contextx.ActorUser {
 		actor = &a.UserID
