@@ -758,3 +758,89 @@ func TestDeleteClientMissing(t *testing.T) {
 		t.Fatalf("want NOT_FOUND, got %q (err=%v)", codeOf(err), err)
 	}
 }
+
+// 仪表盘统计：总数 / 活跃 / 今日 / 昨日，按服务端本地时区的自然日切分。
+//
+// 断言用「造数前后的差值」而不是绝对数：测试库可能已有其它用例残留的行，
+// 只关心本次新增的用户如何落到四个桶里。
+func TestStatsCounts(t *testing.T) {
+	svc, st := newTestService(t)
+
+	before, err := svc.Stats()
+	if err != nil {
+		t.Fatalf("stats before: %v", err)
+	}
+
+	// 以服务端本地时区算出今日 0 点，再精确造出「今日」与「昨日」的用户，
+	// 并各造一个刚好跨在边界上的（昨日 23:59:59 与今日 00:00:00）。
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// 活跃用户：created_at 落在今日，且 status=active。
+	makeTimedUser(t, svc, st, "stat-today-active", todayStart.Add(10*time.Hour), nil)
+	// 今日注册但已被停用：计入 today，不计入 active。
+	disabled := makeTimedUser(t, svc, st, "stat-today-disabled", todayStart.Add(11*time.Hour), nil)
+	if err := st.DB.Model(&models.User{}).Where("id = ?", disabled.ID).
+		Update("status", models.StatusDisabled).Error; err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	// 昨日注册，落在昨日区间内（昨日 23:59:59）。
+	makeTimedUser(t, svc, st, "stat-yesterday", todayStart.Add(-time.Second), nil)
+	// 恰好在今日 0 点：半开区间应把它算进「今日」，而不是「昨日」。
+	makeTimedUser(t, svc, st, "stat-today-start", todayStart, nil)
+
+	after, err := svc.Stats()
+	if err != nil {
+		t.Fatalf("stats after: %v", err)
+	}
+
+	const newUsers = 4
+	if after.Total-before.Total != newUsers {
+		t.Fatalf("total delta = %d, want %d", after.Total-before.Total, newUsers)
+	}
+	// 三个新用户是 active，一个刚被停用。
+	if after.Active-before.Active != 3 {
+		t.Fatalf("active delta = %d, want 3", after.Active-before.Active)
+	}
+	// 今日：10 点、11 点、以及正好 0 点，共 3 个。
+	if after.Today-before.Today != 3 {
+		t.Fatalf("today delta = %d, want 3", after.Today-before.Today)
+	}
+	// 昨日：昨天 23:59:59 的那一个。
+	if after.Yesterday-before.Yesterday != 1 {
+		t.Fatalf("yesterday delta = %d, want 1", after.Yesterday-before.Yesterday)
+	}
+}
+
+// 注销用户是墓碑式软删（deleted_at 非空），不应计入任何一项统计。
+func TestStatsExcludesDeletedUsers(t *testing.T) {
+	svc, st := newTestService(t)
+
+	before, err := svc.Stats()
+	if err != nil {
+		t.Fatalf("stats before: %v", err)
+	}
+
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	u := makeTimedUser(t, svc, st, "stat-deleted", todayStart.Add(9*time.Hour), nil)
+	// 直接打上墓碑标记，模拟已注销（不跑完整注销流程，避免牵扯会话/标识）。
+	if err := st.DB.Model(&models.User{}).Where("id = ?", u.ID).
+		Updates(map[string]any{"status": models.StatusDeleted, "deleted_at": now}).Error; err != nil {
+		t.Fatalf("tombstone user: %v", err)
+	}
+
+	after, err := svc.Stats()
+	if err != nil {
+		t.Fatalf("stats after: %v", err)
+	}
+	if after.Total != before.Total {
+		t.Fatalf("deleted user leaked into total: %d -> %d", before.Total, after.Total)
+	}
+	if after.Today != before.Today {
+		t.Fatalf("deleted user leaked into today: %d -> %d", before.Today, after.Today)
+	}
+	if after.Active != before.Active {
+		t.Fatalf("deleted user leaked into active: %d -> %d", before.Active, after.Active)
+	}
+}

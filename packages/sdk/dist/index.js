@@ -499,6 +499,10 @@ export class DAuthClient {
         });
         return this.request(`/v1/admin/audit-logs?${qs.toString()}`);
     }
+    /** 仪表盘概览：用户总数 / 活跃 / 今日与昨日注册。「今日」按服务端本地时区。 */
+    adminStats() {
+        return this.request("/v1/admin/stats");
+    }
 }
 export function createDAuthClient(opts) {
     return new DAuthClient(opts);

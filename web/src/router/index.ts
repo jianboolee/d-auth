@@ -32,7 +32,7 @@ const router = createRouter({
       component: Shell,
       meta: { admin: true },
       children: [
-        { path: "", redirect: "/admin/users" },
+        { path: "", redirect: "/admin/dashboard" },
         ...asChildRoutes(createAuthAdminRoutes({ basePath: "/admin", variant: "full" }), "/admin"),
       ],
     },
@@ -63,7 +63,7 @@ const router = createRouter({
       component: Shell,
       meta: { admin: true, embed: true },
       children: [
-        { path: "", redirect: "/embed/admin/users" },
+        { path: "", redirect: "/embed/admin/dashboard" },
         ...asChildRoutes(createAuthAdminRoutes({ basePath: "/embed/admin", variant: "full" }), "/embed/admin").map((r) => ({
           ...r,
           meta: { ...r.meta, embed: true, admin: true },

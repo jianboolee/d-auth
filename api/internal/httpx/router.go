@@ -98,6 +98,8 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 		adminG.Use(Authenticate(cfg, authSvc), RequireAdmin())
 		{
 			adminG.GET("/users", RequireScope("users:read"), h.AdminUsers)
+			// 仪表盘概览：用户总数 / 活跃 / 今日与昨日注册，只读，与列表接口同权限
+			adminG.GET("/stats", RequireScope("users:read"), h.AdminStats)
 			adminG.GET("/users/:id", RequireScope("users:read"), h.AdminUser)
 			// 用户的登录会话独立分页，不塞进详情响应（会话数可能很多）
 			adminG.GET("/users/:id/sessions", RequireScope("users:read"), h.AdminUserSessions)

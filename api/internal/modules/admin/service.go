@@ -174,6 +174,43 @@ func (s *Service) GetUser(id string) (dto.User, []models.Identity, error) {
 	return dto.FromUser(user, roles, idents, s.cfg.AvatarURL), idents, nil
 }
 
+// StatsView 是仪表盘的聚合结果。不直接复用 models.User：这些是聚合值，不是
+// 某一行的字段。环比百分比不在这里算——后端只给原始计数，展示口径由前端决定。
+type StatsView struct {
+	Total     int64 `json:"total"`
+	Active    int64 `json:"active"`
+	Today     int64 `json:"today"`
+	Yesterday int64 `json:"yesterday"`
+}
+
+// Stats 汇总仪表盘需要的计数：用户总数、活跃用户、今日与昨日注册。
+//
+// 「今日/昨日」按服务端本地时区切分（生产容器设了 TZ=Asia/Shanghai），用半开
+// 区间 [start, end)，与 ListUsers 的 created_from/created_to 约定一致：这样同一
+// 天内任意时刻都落进范围，不用去猜要不要包含那天的 23:59:59。
+//
+// 全部计数排除注销用户（deleted_at IS NOT NULL）：用户是墓碑式软删，DeletedAt
+// 不是 gorm.DeletedAt，GORM 不会自动过滤，必须显式写，见 CountActiveSuperAdmins。
+// 四个计数用一条条件聚合语句查完，而不是四次 Count——一次往返，且几个数字来自
+// 同一个数据库快照，不会因为查询间隙里有人注册而彼此对不上。
+func (s *Service) Stats() (StatsView, error) {
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	tomorrowStart := todayStart.AddDate(0, 0, 1)
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+
+	var v StatsView
+	err := s.store.DB.Model(&models.User{}).
+		Select(`COUNT(*) AS total,
+			COUNT(*) FILTER (WHERE status = ?) AS active,
+			COUNT(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS today,
+			COUNT(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS yesterday`,
+			models.StatusActive, todayStart, tomorrowStart, yesterdayStart, todayStart).
+		Where("deleted_at IS NULL").
+		Scan(&v).Error
+	return v, err
+}
+
 // ListUserSessions 分页返回某个用户的登录会话，最近创建的在前。
 //
 // 与自助端 usersvc.Sessions 的差别：那里只列「仍然有效」的会话（用户只需要

@@ -631,6 +631,15 @@ func (h *Handlers) UploadAvatar(c *gin.Context) {
 	response.OK(c, u)
 }
 
+func (h *Handlers) AdminStats(c *gin.Context) {
+	v, err := h.Admin.Stats()
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, v)
+}
+
 func (h *Handlers) AdminUsers(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "20"))

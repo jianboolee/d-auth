@@ -640,6 +640,11 @@ export class DAuthClient {
     });
     return this.request<{ items: AuditLog[]; total: number }>(`/v1/admin/audit-logs?${qs.toString()}`);
   }
+
+  /** 仪表盘概览：用户总数 / 活跃 / 今日与昨日注册。「今日」按服务端本地时区。 */
+  adminStats() {
+    return this.request<UserStats>("/v1/admin/stats");
+  }
 }
 
 /**
@@ -739,6 +744,14 @@ export type AuditLog = {
   target_user_id?: string | null;
   ip: string;
   created_at: string;
+};
+
+/** 仪表盘统计。today / yesterday 指注册数；环比由前端算。 */
+export type UserStats = {
+  total: number;
+  active: number;
+  today: number;
+  yesterday: number;
 };
 
 export function createDAuthClient(opts: DAuthClientOptions) {
