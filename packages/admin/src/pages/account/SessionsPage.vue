@@ -8,10 +8,12 @@ import { useAdminClient } from "../../client";
 import { useConfirm } from "../../confirm";
 import { formatDateTime } from "../../datetime";
 import { errMessage } from "../../labels";
+import { useTableScrollX } from "../../viewport";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
+const tableScrollX = useTableScrollX();
 const items = ref<Session[]>([]);
 const loading = ref(false);
 
@@ -105,7 +107,7 @@ onMounted(load);
 
 <template>
   <n-card class="dauth-page wide">
-    <n-data-table :columns="columns" :data="items" :loading="loading">
+    <n-data-table :columns="columns" :data="items" :loading="loading" :scroll-x="tableScrollX">
       <template #empty>
         <div class="dauth-empty">
           <i class="ri-inbox-2-line dauth-ri" />

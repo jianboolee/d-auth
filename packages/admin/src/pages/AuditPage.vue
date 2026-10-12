@@ -6,9 +6,11 @@ import type { AuditLog } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
 import { errMessage } from "../labels";
+import { useTableScrollX } from "../viewport";
 
 const client = useAdminClient();
 const message = useMessage();
+const tableScrollX = useTableScrollX();
 const items = ref<AuditLog[]>([]);
 const loading = ref(false);
 const total = ref(0);
@@ -73,6 +75,7 @@ onMounted(load);
       :data="items"
       :loading="loading"
       :pagination="pagination"
+      :scroll-x="tableScrollX"
     >
       <template #empty>
         <div class="dauth-empty"><i class="ri-inbox-2-line dauth-ri" />暂无数据</div>

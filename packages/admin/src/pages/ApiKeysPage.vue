@@ -22,10 +22,12 @@ import { copyText } from "../clipboard";
 import { useConfirm } from "../confirm";
 import { formatDateTime } from "../datetime";
 import { errMessage, expiryOptions } from "../labels";
+import { useTableScrollX } from "../viewport";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
+const tableScrollX = useTableScrollX();
 const items = ref<ApiKey[]>([]);
 const loading = ref(false);
 
@@ -216,7 +218,7 @@ onMounted(load);
         新建
       </n-button>
     </template>
-    <n-data-table :columns="columns" :data="items" :loading="loading">
+    <n-data-table :columns="columns" :data="items" :loading="loading" :scroll-x="tableScrollX">
       <template #empty>
         <div class="dauth-empty"><i class="ri-inbox-2-line dauth-ri" />暂无数据</div>
       </template>

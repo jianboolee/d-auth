@@ -8,12 +8,14 @@ import type { Session } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
 import { errMessage } from "../labels";
+import { useTableScrollX } from "../viewport";
 
 const props = defineProps<{ basePath?: string }>();
 const route = useRoute();
 const router = useRouter();
 const client = useAdminClient();
 const message = useMessage();
+const tableScrollX = useTableScrollX();
 const items = ref<Session[]>([]);
 const total = ref(0);
 const loading = ref(false);
@@ -140,6 +142,7 @@ onMounted(load);
           :data="items"
           :loading="loading"
           :pagination="pagination"
+          :scroll-x="tableScrollX"
         >
           <template #empty>
             <div class="dauth-empty">

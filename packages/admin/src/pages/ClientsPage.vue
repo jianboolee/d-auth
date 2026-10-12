@@ -6,10 +6,12 @@ import type { ClientApp } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { useConfirm } from "../confirm";
 import { clientTypeLabel, clientTypeOptions, errMessage, statusLabel } from "../labels";
+import { useTableScrollX } from "../viewport";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
+const tableScrollX = useTableScrollX();
 const items = ref<ClientApp[]>([]);
 const loading = ref(false);
 const show = ref(false);
@@ -207,7 +209,7 @@ onMounted(load);
         新建
       </n-button>
     </template>
-    <n-data-table :columns="columns" :data="items" :loading="loading">
+    <n-data-table :columns="columns" :data="items" :loading="loading" :scroll-x="tableScrollX">
       <template #empty>
         <div class="dauth-empty"><i class="ri-inbox-2-line dauth-ri" />暂无数据</div>
       </template>

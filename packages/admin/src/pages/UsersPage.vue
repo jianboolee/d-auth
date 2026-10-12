@@ -17,11 +17,13 @@ import type { User } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
 import { errMessage, roleLabel, statusLabel } from "../labels";
+import { useTableScrollX } from "../viewport";
 
 const props = defineProps<{ basePath?: string }>();
 const client = useAdminClient();
 const router = useRouter();
 const message = useMessage();
+const tableScrollX = useTableScrollX();
 const loading = ref(false);
 const items = ref<User[]>([]);
 const total = ref(0);
@@ -239,6 +241,7 @@ onMounted(load);
         :data="items"
         :loading="loading"
         :pagination="pagination"
+        :scroll-x="tableScrollX"
         @update:sorter="onSorterChange"
       >
         <template #empty>

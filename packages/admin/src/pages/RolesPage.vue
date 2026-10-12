@@ -17,10 +17,12 @@ import type { Role } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { useConfirm } from "../confirm";
 import { errMessage } from "../labels";
+import { useTableScrollX } from "../viewport";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
+const tableScrollX = useTableScrollX();
 const items = ref<Role[]>([]);
 const show = ref(false);
 /** 非空表示编辑该角色，为空表示新建。 */
@@ -139,7 +141,7 @@ onMounted(load);
         新建角色
       </n-button>
     </template>
-    <n-data-table :columns="columns" :data="items">
+    <n-data-table :columns="columns" :data="items" :scroll-x="tableScrollX">
       <template #empty>
         <div class="dauth-empty"><i class="ri-inbox-2-line dauth-ri" />暂无数据</div>
       </template>
