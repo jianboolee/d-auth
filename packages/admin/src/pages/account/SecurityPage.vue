@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import { NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput, useMessage } from "naive-ui";
+import { NButton, NForm, NFormItem, NInput, NModal, NSpace, useMessage } from "naive-ui";
 import type { Identity } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../../client";
 import { useConfirm } from "../../confirm";
@@ -137,7 +137,7 @@ function resetAll() {
 
 const panelRef = ref<HTMLElement | null>(null);
 
-/** 打开抽屉后聚焦第一个输入框（而非默认的关闭按钮）。 */
+/** 打开弹窗后聚焦第一个输入框（而非默认的关闭按钮）。 */
 function focusFirstInput() {
   panelRef.value?.querySelector("input")?.focus();
 }
@@ -283,11 +283,6 @@ function submitEmail() {
   });
 }
 
-const isMobile = ref(typeof window !== "undefined" && window.innerWidth < 640);
-function onResize() {
-  isMobile.value = window.innerWidth < 640;
-}
-
 async function loadIdentities() {
   identitiesLoading.value = true;
   try {
@@ -348,10 +343,8 @@ async function submitDelete() {
 }
 
 onMounted(() => {
-  window.addEventListener("resize", onResize);
   loadIdentities();
 });
-onUnmounted(() => window.removeEventListener("resize", onResize));
 </script>
 
 <template>
@@ -419,18 +412,18 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
       </template>
     </n-modal>
 
-    <!-- auto-focus 默认会聚焦抽屉内第一个可聚焦元素（即头部关闭按钮），
-         导致刚打开时关闭按钮呈现 active 态；改为手动聚焦第一个输入框。 -->
-    <n-drawer
+    <!-- 用弹窗而非抽屉：与后台其它表单（新建应用、API Key 等）保持一致。
+         打开后手动聚焦第一个输入框，避免默认聚焦到关闭按钮。 -->
+    <n-modal
       v-model:show="show"
-      :width="isMobile ? '100%' : 420"
-      placement="right"
-      :auto-focus="false"
+      preset="card"
+      :title="panelTitle"
+      :style="{ width: '460px', maxWidth: 'calc(100vw - 32px)' }"
+      :mask-closable="false"
       @after-enter="focusFirstInput"
       @after-leave="resetAll"
     >
-      <n-drawer-content :title="panelTitle" closable>
-        <div ref="panelRef">
+      <div ref="panelRef">
         <n-form v-if="panel === 'password'" label-placement="top">
           <n-form-item label="新密码">
             <n-input v-model:value="pw.next" type="password" show-password-on="click" placeholder="8-72 位" />
@@ -444,7 +437,6 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
               @keyup.enter="submitPassword"
             />
           </n-form-item>
-          <n-button type="primary" block :loading="busy" @click="submitPassword">保存</n-button>
         </n-form>
 
         <n-form v-else-if="panel === 'phone'" label-placement="top">
@@ -471,7 +463,6 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
               </n-button>
             </div>
           </n-form-item>
-          <n-button type="primary" block :loading="busy" @click="submitPhone">保存</n-button>
         </n-form>
 
         <n-form v-else label-placement="top">
@@ -490,11 +481,22 @@ onUnmounted(() => window.removeEventListener("resize", onResize));
               </n-button>
             </div>
           </n-form-item>
-          <n-button type="primary" block :loading="busy" @click="submitEmail">保存</n-button>
         </n-form>
-        </div>
-      </n-drawer-content>
-    </n-drawer>
+      </div>
+
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="show = false">取消</n-button>
+          <n-button
+            type="primary"
+            :loading="busy"
+            @click="panel === 'password' ? submitPassword() : panel === 'phone' ? submitPhone() : submitEmail()"
+          >
+            保存
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
