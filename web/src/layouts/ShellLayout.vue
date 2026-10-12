@@ -79,7 +79,8 @@ async function logout() {
   </n-layout>
 
   <n-layout v-else class="shell embed">
-    <div v-if="embed && !publicPage" class="embed-top">
+    <!-- embed-top 暂时不需要显示，先注释保留，恢复时取消注释即可 -->
+    <!-- <div v-if="embed && !publicPage" class="embed-top">
       <span class="embed-title">{{ title }}</span>
       <n-space align="center">
         <n-button v-if="auth.isAdmin" quaternary size="small" @click="router.push(paths.adminUsers())">管理</n-button>
@@ -89,7 +90,7 @@ async function logout() {
           退出
         </n-button>
       </n-space>
-    </div>
+    </div> -->
     <n-layout-content content-style="padding: 16px" :native-scrollbar="false">
       <router-view />
     </n-layout-content>
@@ -109,6 +110,8 @@ async function logout() {
   overflow: auto;
   background: var(--dauth-bg);
 }
+/* embed-top 的样式随模板块一起注释保留，恢复时一并启用 */
+/*
 .embed-top {
   display: flex;
   justify-content: space-between;
@@ -119,6 +122,7 @@ async function logout() {
   font-weight: 600;
   font-size: 15px;
 }
+*/
 .float-menu {
   position: fixed;
   top: 14px;
