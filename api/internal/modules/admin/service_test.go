@@ -59,8 +59,6 @@ func codeOf(err error) string {
 }
 
 // makeClient 建一个应用；key 用随机后缀保证同一库上重复跑不撞唯一索引。
-// 刻意不传 allowed_origins / login_methods：这两列是 NOT NULL，省略字段是
-// SDK 允许的用法，也是回归用例要守住的场景（见 TestCreateClientWithoutOptionalFields）。
 func makeClient(t *testing.T, svc *Service, key string) *models.Client {
 	t.Helper()
 	cl, err := svc.CreateClient(ClientInput{
@@ -239,23 +237,6 @@ func TestConsoleClientIsProtected(t *testing.T) {
 	t.Cleanup(func() {
 		svc.UpdateClient(console.ID, ClientInput{Name: "d-auth 控制台"})
 	})
-}
-
-// 建应用时省略可选字段不应失败。allowed_origins / login_methods 是 NOT NULL 列，
-// nil slice 会被写成 NULL 而撞非空约束——控制台总是发 []，所以这个坑只在直接调
-// API/SDK（ClientInput 字段可选）时暴露，且原先会被误报成「client_key 已存在」。
-func TestCreateClientWithoutOptionalFields(t *testing.T) {
-	svc, _ := newTestService(t)
-
-	cl, err := svc.CreateClient(ClientInput{ClientKey: uniqueKey("bare"), Name: "仅必填"})
-	if err != nil {
-		t.Fatalf("create with omitted optional fields: %v", err)
-	}
-	if cl.AllowedOrigins == nil || cl.LoginMethods == nil {
-		t.Errorf("arrays should come back as empty, got origins=%v methods=%v",
-			cl.AllowedOrigins, cl.LoginMethods)
-	}
-	t.Cleanup(func() { _ = svc.DeleteClient(cl.ID) })
 }
 
 // virtualPhoneSeq 保证同一进程内每次调用都拿到不同的后缀，避免仅靠时间戳时的偶然重复。

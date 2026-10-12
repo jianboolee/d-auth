@@ -81,8 +81,6 @@ func makeMiniClient(t *testing.T, svc *Service, st *store.Store, appID, appSecre
 		ClientKey:          "mini_" + uuid.NewString()[:8],
 		Name:               "小程序测试",
 		Type:               "miniprogram",
-		AllowedOrigins:     models.TextArray{},
-		LoginMethods:       models.TextArray{},
 		WechatAppID:        appID,
 		WechatAppSecretEnc: enc,
 		Status:             models.StatusActive,

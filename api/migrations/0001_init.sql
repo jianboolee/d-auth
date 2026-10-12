@@ -59,8 +59,8 @@ CREATE TABLE IF NOT EXISTS auth_clients (
     client_key TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     type TEXT NOT NULL,
-    allowed_origins TEXT[] NOT NULL DEFAULT '{}',
-    login_methods TEXT[] NOT NULL DEFAULT '{}',
+    -- 跨域来源与可用登录方式不再按应用配置：前者由环境变量
+    -- DAUTH_ALLOWED_ORIGINS 统一控制，后者目前是全局的。
     wechat_app_id TEXT NOT NULL DEFAULT '',
     wechat_app_secret_enc TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
@@ -124,14 +124,12 @@ VALUES
     ('01800000-0000-7000-8000-000000000003', 'user', '用户', '默认登录用户', true)
 ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO auth_clients (id, client_key, name, type, allowed_origins, login_methods, status)
+INSERT INTO auth_clients (id, client_key, name, type, status)
 VALUES (
     '01800000-0000-7000-8000-000000000010',
     'web_console',
     'd-auth 控制台',
     'web',
-    ARRAY['http://localhost:8682', 'http://127.0.0.1:8682', 'http://localhost:8680', 'http://127.0.0.1:8680'],
-    ARRAY['sms', 'email', 'wechat_qr'],
     'active'
 )
 ON CONFLICT (client_key) DO NOTHING;

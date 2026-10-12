@@ -182,8 +182,6 @@ type Client struct {
 	ClientKey          string    `json:"client_key"`
 	Name               string    `json:"name"`
 	Type               string    `json:"type"`
-	AllowedOrigins     TextArray `gorm:"type:text[]" json:"allowed_origins"`
-	LoginMethods       TextArray `gorm:"type:text[]" json:"login_methods"`
 	WechatAppID        string    `json:"wechat_app_id"`
 	WechatAppSecretEnc string    `json:"-"`
 	Status             string    `json:"status"`

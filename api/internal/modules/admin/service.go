@@ -545,14 +545,12 @@ func (s *Service) ListClients() ([]models.Client, error) {
 }
 
 type ClientInput struct {
-	ClientKey      string   `json:"client_key"`
-	Name           string   `json:"name"`
-	Type           string   `json:"type"`
-	AllowedOrigins []string `json:"allowed_origins"`
-	LoginMethods   []string `json:"login_methods"`
-	WechatAppID    string   `json:"wechat_app_id"`
-	WechatSecret   string   `json:"wechat_app_secret"`
-	Status         string   `json:"status"`
+	ClientKey    string `json:"client_key"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	WechatAppID  string `json:"wechat_app_id"`
+	WechatSecret string `json:"wechat_app_secret"`
+	Status       string `json:"status"`
 }
 
 // clientKeyRe 限制应用标识：小写字母开头，后接小写字母/数字/下划线/连字符。
@@ -578,15 +576,6 @@ func (s *Service) CreateClient(in ClientInput) (*models.Client, error) {
 	if in.Status == "" {
 		in.Status = models.StatusActive
 	}
-	// 这两列是 NOT NULL，而 nil slice 会被写成 NULL：调用方省略字段（SDK 的
-	// ClientInput 是可选的）就会撞非空约束。控制台总是发 []，所以这个坑只在
-	// 直接调 API/SDK 时暴露，且原先会被误报成「client_key 已存在」。归一成空数组。
-	if in.AllowedOrigins == nil {
-		in.AllowedOrigins = []string{}
-	}
-	if in.LoginMethods == nil {
-		in.LoginMethods = []string{}
-	}
 	enc, err := secret.Encrypt(s.cfg.MasterKey, in.WechatSecret)
 	if err != nil {
 		return nil, err
@@ -596,8 +585,6 @@ func (s *Service) CreateClient(in ClientInput) (*models.Client, error) {
 		ClientKey:          in.ClientKey,
 		Name:               in.Name,
 		Type:               in.Type,
-		AllowedOrigins:     in.AllowedOrigins,
-		LoginMethods:       in.LoginMethods,
 		WechatAppID:        in.WechatAppID,
 		WechatAppSecretEnc: enc,
 		Status:             in.Status,
@@ -645,12 +632,6 @@ func (s *Service) UpdateClient(id uuid.UUID, in ClientInput) (*models.Client, er
 	}
 	if in.WechatAppID != "" {
 		updates["wechat_app_id"] = in.WechatAppID
-	}
-	if in.AllowedOrigins != nil {
-		updates["allowed_origins"] = models.TextArray(in.AllowedOrigins)
-	}
-	if in.LoginMethods != nil {
-		updates["login_methods"] = models.TextArray(in.LoginMethods)
 	}
 	if in.WechatSecret != "" {
 		enc, err := secret.Encrypt(s.cfg.MasterKey, in.WechatSecret)

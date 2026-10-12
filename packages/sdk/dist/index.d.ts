@@ -371,8 +371,6 @@ export type ClientApp = {
     client_key: string;
     name: string;
     type: string;
-    allowed_origins: string[];
-    login_methods: string[];
     wechat_app_id: string;
     status: string;
 };

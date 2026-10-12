@@ -214,7 +214,7 @@ onMounted(load);
     </n-data-table>
     <p class="hint">
       停用会立即生效（该应用无法再用于登录），删除则不可恢复；控制台自身的应用（{{ CONSOLE_CLIENT_KEY }}）不支持这两项。
-      跨域来源白名单由服务端环境变量 DAUTH_ALLOWED_ORIGINS 控制，不在此处配置。
+      跨域来源白名单由服务端环境变量 DAUTH_ALLOWED_ORIGINS 控制。
     </p>
 
     <n-modal v-model:show="show" preset="card" :title="editingId ? '编辑应用' : '新建应用'" style="width: 520px">
