@@ -39,7 +39,7 @@ const accountMenu = computed<MenuOption[]>(() => {
 const adminMenu = computed<MenuOption[]>(() => {
   const base = paths.adminBase();
   return [
-    { label: "仪表盘", key: `${base}/dashboard`, icon: ri("ri-dashboard-line") },
+    { label: "概览", key: `${base}/dashboard`, icon: ri("ri-dashboard-line") },
     { label: "用户", key: `${base}/users`, icon: ri("ri-team-line") },
     { label: "角色", key: `${base}/roles`, icon: ri("ri-user-star-line") },
     { label: "应用 / 小程序", key: `${base}/clients`, icon: ri("ri-apps-2-line") },

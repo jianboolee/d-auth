@@ -63,8 +63,8 @@ export function createAuthAdminRoutes(opts: AdminRouteOptions = {}): RouteRecord
   const base = opts.basePath ?? "/admin";
   const variant = opts.variant ?? "users";
   const routes: RouteRecordRaw[] = [
-    // 仪表盘是后台默认落地页（web 路由把 /admin 重定向到这里），放在最前
-    { path: `${base}/dashboard`, component: DashboardPage, meta: { title: "仪表盘" } },
+    // 概览是后台默认落地页（web 路由把 /admin 重定向到这里），放在最前
+    { path: `${base}/dashboard`, component: DashboardPage, meta: { title: "概览" } },
     { path: `${base}/users`, component: UsersPage, props: { basePath: base }, meta: { title: "用户" } },
     { path: `${base}/users/new`, component: CreateUserPage, props: { basePath: base }, meta: { title: "创建用户" } },
     { path: `${base}/users/:id`, component: UserDetailPage, props: { basePath: base }, meta: { title: "用户详情" } },

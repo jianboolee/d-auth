@@ -50,7 +50,7 @@ onMounted(load);
 </script>
 
 <template>
-  <n-card title="仪表盘" class="d-auth-admin dauth-page wide">
+  <n-card title="概览" class="d-auth-admin dauth-page wide">
     <div class="stat-grid">
       <div v-for="c in cards" :key="c.key" class="stat-card">
         <div class="stat-head">
@@ -67,9 +67,6 @@ onMounted(load);
         </template>
       </div>
     </div>
-    <p class="hint">
-      统计按服务端本地时区的自然日划分，「今日 / 昨日」即服务器所在时区的当天与前一天；已注销的用户不计入。
-    </p>
   </n-card>
 </template>
 
@@ -127,11 +124,5 @@ onMounted(load);
 }
 .stat-delta-hint {
   color: var(--dauth-text-secondary, #8a8a94);
-}
-.hint {
-  margin: 12px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--dauth-text-secondary, #8c8c8c);
 }
 </style>
