@@ -1,6 +1,7 @@
 package usersvc
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -11,6 +12,22 @@ import (
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 )
+
+// fakeCodes 是 CodeVerifier 的测试替身，只接受固定验证码，避免注销测试依赖 Redis。
+type fakeCodes struct {
+	accept string
+	// 记录最近一次 Verify 的 scene 与 target，供用例断言。
+	lastScene  string
+	lastTarget string
+}
+
+func (f *fakeCodes) Verify(_ context.Context, scene, target, code string) error {
+	f.lastScene, f.lastTarget = scene, target
+	if code != f.accept {
+		return apperr.New(apperr.ErrInvalidCode, "INVALID_CODE", "验证码不正确或已过期")
+	}
+	return nil
+}
 
 // 需要真实 postgres：通过 PG_TEST_DSN 提供连接串，否则跳过。
 // 注销涉及多张表与外键约束，只有打真库才能验证「手机号被释放」这类承诺。
@@ -34,7 +51,16 @@ func newTestService(t *testing.T) (*Service, *store.Store) {
 	if mErr != nil {
 		t.Fatalf("migrate: %v", mErr)
 	}
-	return &Service{store: store.New(db)}, store.New(db)
+	return &Service{store: store.New(db), codes: &fakeCodes{accept: "123456"}}, store.New(db)
+}
+
+// newTestServiceWithCodes 额外返回验证码替身，用于自助注销（DeleteSelf）的用例。
+func newTestServiceWithCodes(t *testing.T, accept string) (*Service, *store.Store, *fakeCodes) {
+	t.Helper()
+	svc, st := newTestService(t)
+	fc := &fakeCodes{accept: accept}
+	svc.codes = fc
+	return svc, st, fc
 }
 
 func codeOf(err error) string {
@@ -274,5 +300,86 @@ func TestDeleteAccountTwice(t *testing.T) {
 	}
 	if codeOf(svc.DeleteAccount(id, DeleteAccountConfirm)) != "NOT_FOUND" {
 		t.Fatal("second delete should report NOT_FOUND")
+	}
+}
+
+// 自助注销：已绑定手机号的用户必须提交该号码的验证码，场景为 delete_account。
+func TestDeleteSelfRequiresCodeForBoundPhone(t *testing.T) {
+	svc, st, fc := newTestServiceWithCodes(t, "123456")
+	phone := "+8613800000011"
+	id := makeUser(t, st, phone)
+	ctx := context.Background()
+
+	// 缺验证码：拒绝，且不改动账号。
+	if codeOf(svc.DeleteSelf(ctx, id, DeleteAccountConfirm, "")) != "CODE_REQUIRED" {
+		t.Fatal("missing code must be rejected for a phone-bound user")
+	}
+	// 验证码错误：拒绝。
+	if codeOf(svc.DeleteSelf(ctx, id, DeleteAccountConfirm, "000000")) != "INVALID_CODE" {
+		t.Fatal("wrong code must be rejected")
+	}
+	if _, err := st.UserByID(id); err != nil {
+		t.Fatal("a rejected self-deletion must not modify the account")
+	}
+	// 断言校验的是当前绑定号码、用的是 delete_account 场景。
+	if fc.lastScene != "delete_account" || fc.lastTarget != phone {
+		t.Fatalf("verify called with scene=%q target=%q, want delete_account/%q", fc.lastScene, fc.lastTarget, phone)
+	}
+
+	// 正确验证码：注销成功。
+	if err := svc.DeleteSelf(ctx, id, DeleteAccountConfirm, "123456"); err != nil {
+		t.Fatalf("correct code should allow deletion: %v", err)
+	}
+	if _, err := st.UserByID(id); err == nil {
+		t.Fatal("account should be gone after a verified self-deletion")
+	}
+}
+
+// 未绑定手机号的用户仍可用确认串注销，不强制要验证码。
+// /v1/me 的注销路由刻意不要求已绑手机号，这条用例锁住这个意图。
+func TestDeleteSelfWithoutPhoneNeedsNoCode(t *testing.T) {
+	svc, st, _ := newTestServiceWithCodes(t, "123456")
+
+	// 直接建一个没有手机号身份的用户。
+	u := &models.User{Nickname: "无手机号", Status: models.StatusActive}
+	if err := st.CreateUser(nil, u, models.RoleUser); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	t.Cleanup(func() {
+		st.DB.Exec("DELETE FROM auth_user_roles WHERE user_id = ?", u.ID)
+		st.DB.Exec("DELETE FROM auth_users WHERE id = ?", u.ID)
+	})
+
+	if err := svc.DeleteSelf(context.Background(), u.ID, DeleteAccountConfirm, ""); err != nil {
+		t.Fatalf("user without a phone should be deletable without a code: %v", err)
+	}
+	if _, err := st.UserByID(u.ID); err == nil {
+		t.Fatal("account should be gone")
+	}
+}
+
+// 确认串校验先于验证码：确认串错了就报 CONFIRM_REQUIRED，不消耗验证码。
+func TestDeleteSelfConfirmCheckedBeforeCode(t *testing.T) {
+	svc, st, fc := newTestServiceWithCodes(t, "123456")
+	id := makeUser(t, st, "+8613800000012")
+
+	if codeOf(svc.DeleteSelf(context.Background(), id, "错误", "123456")) != "CONFIRM_REQUIRED" {
+		t.Fatal("a bad confirm string must be rejected first")
+	}
+	if fc.lastScene != "" {
+		t.Fatal("the code must not be verified when the confirm string is already wrong")
+	}
+}
+
+// 后台路径（DeleteAccount）不要求验证码——管理员拿不到目标用户的验证码。
+func TestDeleteAccountAdminPathIgnoresCode(t *testing.T) {
+	svc, st, fc := newTestServiceWithCodes(t, "123456")
+	id := makeUser(t, st, "+8613800000013")
+
+	if err := svc.DeleteAccount(id, DeleteAccountConfirm); err != nil {
+		t.Fatalf("admin path should not need a code: %v", err)
+	}
+	if fc.lastScene != "" {
+		t.Fatal("the admin path must not call Verify")
 	}
 }

@@ -22,10 +22,19 @@ import (
 	"gorm.io/gorm"
 )
 
+// CodeVerifier 是 usersvc 依赖的验证码校验能力。
+//
+// 定义成窄接口而非直接依赖 *codes.Service，是为了让只跑 Postgres 的测试
+// （如注销流程）注入假实现——真实现需要 Redis，不该把两套外部依赖绑在一起。
+// 生产环境注入的就是 *codes.Service，它天然满足这个接口。
+type CodeVerifier interface {
+	Verify(ctx context.Context, scene, target, code string) error
+}
+
 type Service struct {
 	cfg   *config.Config
 	store *store.Store
-	codes *codes.Service
+	codes CodeVerifier
 	oss   ossstore.Store
 	auth  *auth.Service
 	// cache 缓存组装好的用户资料。自助接口的每个写操作（改资料、改密码、
@@ -160,10 +169,67 @@ const DeleteAccountConfirm = "确认注销"
 
 // DeleteAccount 注销账号，抹掉个人信息并释放手机号/邮箱。
 // 这是不可逆操作：调用方（自助接口或后台）负责在此之前完成确认流程。
+//
+// 自助注销走 DeleteSelf：后台管理员拿不到目标用户的短信验证码，只能靠确认串，
+// 所以这里保留「只校验确认串」的语义给后台使用。
 func (s *Service) DeleteAccount(userID string, confirm string) error {
+	if err := checkDeleteConfirm(confirm); err != nil {
+		return err
+	}
+	return s.delete(userID)
+}
+
+// DeleteSelf 是用户自助注销：除确认串外，已绑定手机号的用户还必须提交该号码
+// 收到的验证码（delete_account 场景）。绑了手机号就必须证明自己掌握它，避免
+// 登录态被他人短暂接管后账号被直接抹掉。
+//
+// 未绑定手机号的用户仍只看确认串：/v1/me 的注销路由刻意不要求已绑手机号，
+// 手机号不可用的人也应该能注销自己的账号。
+func (s *Service) DeleteSelf(ctx context.Context, userID, confirm, code string) error {
+	// 先校验确认串再验验证码：验证码是一次性的，确认串写错却把码消耗掉，
+	// 用户就得重新发一条短信才能重试。
+	if err := checkDeleteConfirm(confirm); err != nil {
+		return err
+	}
+	phone, hasPhone, err := s.phoneOf(userID)
+	if err != nil {
+		return err
+	}
+	if hasPhone {
+		if strings.TrimSpace(code) == "" {
+			return apperr.New(apperr.ErrInvalidArgument, "CODE_REQUIRED", "请输入手机号验证码")
+		}
+		if err := s.codes.Verify(ctx, "delete_account", phone, strings.TrimSpace(code)); err != nil {
+			return err
+		}
+	}
+	return s.delete(userID)
+}
+
+// phoneOf 返回用户当前绑定的手机号（未绑定时 hasPhone=false）。
+func (s *Service) phoneOf(userID string) (string, bool, error) {
+	idents, err := s.store.IdentitiesOf(userID)
+	if err != nil {
+		return "", false, err
+	}
+	for _, id := range idents {
+		if id.Type == models.IdentityPhone {
+			return id.Identifier, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// checkDeleteConfirm 校验注销确认串。
+func checkDeleteConfirm(confirm string) error {
 	if confirm != DeleteAccountConfirm {
 		return apperr.New(apperr.ErrInvalidArgument, "CONFIRM_REQUIRED", "请输入确认文字以完成注销")
 	}
+	return nil
+}
+
+// delete 是确认串已通过后的实际删除：墓碑式抹除 + 释放身份 + 缓存失效。
+func (s *Service) delete(userID string) error {
 	if _, err := s.store.UserByID(userID); err != nil {
 		return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
 	}

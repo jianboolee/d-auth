@@ -472,6 +472,27 @@ func (h *Handlers) ChangePhone(c *gin.Context) {
 	response.OK(c, gin.H{"ok": true})
 }
 
+type sendSelfSMSReq struct {
+	Scene string `json:"scene"`
+}
+
+// SendSelfSMS 给当前登录用户「已绑定」的手机号发验证码。
+//
+// 号码取自服务端（/v1/me 返回的是脱敏号码，前端拿不到真实值）。场景仍需白名单
+// 校验，当前用于 delete_account（注销前证明掌握绑定号码）。
+func (h *Handlers) SendSelfSMS(c *gin.Context) {
+	var req sendSelfSMSReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	a, _ := contextx.GetActor(c)
+	if _, err := h.Auth.SendSMSForUser(c, a.UserID, req.Scene, c.ClientIP()); err != nil {
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"ok": true})
+}
+
 type bindEmailReq struct {
 	Email string `json:"email"`
 	Code  string `json:"code"`
@@ -517,16 +538,20 @@ func (h *Handlers) DeleteIdentity(c *gin.Context) {
 
 type deleteAccountReq struct {
 	Confirm string `json:"confirm"`
+	// Code 是当前绑定手机号收到的验证码（delete_account 场景）。已绑手机号的
+	// 用户自助注销时必须提供；未绑定手机号时忽略。管理员注销不使用这个字段。
+	Code string `json:"code"`
 }
 
-// DeleteAccount 用户自助注销：需要显式确认串，成功后清除会话 Cookie。
+// DeleteAccount 用户自助注销：需要显式确认串，已绑手机号还需短信验证码，
+// 成功后清除会话 Cookie。
 func (h *Handlers) DeleteAccount(c *gin.Context) {
 	var req deleteAccountReq
 	if !response.BindJSON(c, &req) {
 		return
 	}
 	a, _ := contextx.GetActor(c)
-	if err := h.Users.DeleteAccount(a.UserID, req.Confirm); err != nil {
+	if err := h.Users.DeleteSelf(c.Request.Context(), a.UserID, req.Confirm, req.Code); err != nil {
 		WriteError(c, err)
 		return
 	}

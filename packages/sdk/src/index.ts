@@ -203,6 +203,19 @@ export class DAuthClient {
     });
   }
 
+  /**
+   * 给「当前登录用户已绑定」的手机号发验证码，号码由服务端解析。
+   *
+   * /v1/me 返回的手机号是脱敏的，前端无法用它调 sendSms，注销前验证等场景用这个。
+   * 当前 scene 只用于 delete_account。
+   */
+  sendSelfSms(scene: string) {
+    return this.request<{ ok: boolean }>("/v1/me/sms/self", {
+      method: "POST",
+      body: JSON.stringify({ scene }),
+    });
+  }
+
   async smsLogin(phone: string, code: string) {
     const data = await this.request<TokenResult>("/v1/auth/sms/login", {
       method: "POST",
@@ -301,16 +314,18 @@ export class DAuthClient {
   }
 
   /**
-   * 注销当前账号（不可逆）。confirm 必须为「确认注销」，
-   * 服务端会校验。
+   * 注销当前账号（不可逆）。confirm 必须为「确认注销」，服务端会校验。
    *
-   * 只在成功时清除本地凭据：失败（如确认串写错）不应把用户登出，
+   * 已绑定手机号的用户还须传 code：当前绑定手机号收到的验证码（delete_account
+   * 场景）。未绑定手机号时忽略 code。
+   *
+   * 只在成功时清除本地凭据：失败（如确认串写错、验证码不对）不应把用户登出，
    * 否则会让人误以为账号已经注销。
    */
-  async deleteAccount(confirm: string) {
+  async deleteAccount(confirm: string, code?: string) {
     const res = await this.request<{ ok: boolean }>("/v1/me", {
       method: "DELETE",
-      body: JSON.stringify({ confirm }),
+      body: JSON.stringify({ confirm, code }),
     });
     this.clearTokens();
     return res;

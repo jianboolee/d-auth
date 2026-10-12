@@ -74,6 +74,9 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			// 注销账号同样不要求已绑手机号：手机号已失效、无法绑定的人
 			// 也应该能注销自己的账号（与上面的绑定接口同理）。
 			me.DELETE("/me", h.DeleteAccount)
+			// 注销前的短信验证码：给当前绑定手机号发送，号码由服务端解析。
+			// 与注销同组（不要求已绑手机号），未绑定时由服务端返回 NO_PHONE。
+			me.POST("/me/sms/self", h.SendSelfSMS)
 
 			// 其余账号接口要求已绑定手机号：手机号是主要登录能力，未绑定时
 			// 只放行上面的绑定接口，前端会引导到绑定手机号页。

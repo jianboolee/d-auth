@@ -16,6 +16,7 @@ func TestSceneAllowed(t *testing.T) {
 		{"sms empty defaults to login", smsScenes, "", "login", "login", true},
 		{"sms login", smsScenes, "login", "login", "login", true},
 		{"sms bind_phone", smsScenes, "bind_phone", "login", "bind_phone", true},
+		{"sms delete_account", smsScenes, "delete_account", "login", "delete_account", true},
 		// 关键回归：改绑用的是 bind_phone，change_phone 已无任何 Verify，必须拒绝
 		{"sms change_phone rejected", smsScenes, "change_phone", "login", "", false},
 		// 攻击者为绕过单号上限而自造的 scene 必须被拒
@@ -47,7 +48,7 @@ func TestSceneAllowed(t *testing.T) {
 // 白名单必须与代码里实际 Verify 的 scene 一致，否则正常流程会被自己的白名单拒掉。
 func TestSceneAllowlistMatchesVerifiedScenes(t *testing.T) {
 	// 这些是代码里真实存在的 Verify 调用点，改动它们时这个测试会提醒同步白名单。
-	for _, s := range []string{"login", "bind_phone"} {
+	for _, s := range []string{"login", "bind_phone", "delete_account"} {
 		if _, ok := smsScenes[s]; !ok {
 			t.Fatalf("sms scene %q is verified in code but missing from smsScenes", s)
 		}

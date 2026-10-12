@@ -66,6 +66,9 @@ var (
 	smsScenes = map[string]struct{}{
 		"login":      {},
 		"bind_phone": {},
+		// delete_account：注销账号前验证当前手机号。让「手机丢了但登录态还在」
+		// 的人无法直接抹掉账号，需要证明自己掌握绑定的号码。
+		"delete_account": {},
 	}
 	emailScenes = map[string]struct{}{
 		"register":       {},
@@ -104,6 +107,29 @@ func (s *Service) SendSMS(ctx context.Context, phoneRaw, scene, ip string) (stri
 		return "", apperr.New(err, "SMS_FAILED", "短信发送失败")
 	}
 	return code, nil
+}
+
+// SendSMSForUser 给指定用户「当前绑定」的手机号发验证码。
+//
+// 号码由服务端解析，前端只传 userID：/v1/me 返回的手机号是脱敏的
+// （138****8000），前端拿不到真实号码，也无法把它交给 SendSMS。
+// 供 delete_account 这类「证明自己掌握绑定号码」的场景使用。
+func (s *Service) SendSMSForUser(ctx context.Context, userID, scene, ip string) (string, error) {
+	idents, err := s.store.IdentitiesOf(userID)
+	if err != nil {
+		return "", err
+	}
+	phone := ""
+	for _, id := range idents {
+		if id.Type == models.IdentityPhone {
+			phone = id.Identifier
+			break
+		}
+	}
+	if phone == "" {
+		return "", apperr.New(apperr.ErrInvalidArgument, "NO_PHONE", "未绑定手机号")
+	}
+	return s.SendSMS(ctx, phone, scene, ip)
 }
 
 func (s *Service) SMSLogin(ctx context.Context, phoneRaw, code string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {

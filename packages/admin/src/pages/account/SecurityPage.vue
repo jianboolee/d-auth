@@ -323,14 +323,46 @@ const DELETE_CONFIRM_TEXT = "确认注销";
 const deleteOpen = ref(false);
 const deleteInput = ref("");
 const deleting = ref(false);
+// 注销验证码：仅当账号已绑手机号时才需要（后端同样只在有手机号时校验）。
+const deleteCode = ref("");
+const deleteSending = ref(false);
+const { seconds: deleteSeconds, start: startDeleteCd, clear: clearDeleteCd } = useCountdown();
 
-const canDelete = computed(() => deleteInput.value.trim() === DELETE_CONFIRM_TEXT);
+const canDelete = computed(
+  () =>
+    deleteInput.value.trim() === DELETE_CONFIRM_TEXT &&
+    (!boundPhone.value || deleteCode.value.trim().length > 0),
+);
+
+function openDelete() {
+  deleteInput.value = "";
+  deleteCode.value = "";
+  clearDeleteCd();
+  deleteOpen.value = true;
+}
+
+async function sendDeleteCode() {
+  if (!boundPhone.value) return;
+  deleteSending.value = true;
+  try {
+    // 用服务端解析的绑定号码发送：user.phone 是脱敏值，不能直接用于 sendSms。
+    await client.sendSelfSms("delete_account");
+    message.success("验证码已发送");
+    startDeleteCd();
+  } catch (e: unknown) {
+    message.error(errMessage(e));
+    // 命中限流也进入倒计时，避免反复点击被连续拒绝（真正的限制在服务端）
+    if (isRateLimited(e)) startDeleteCd();
+  } finally {
+    deleteSending.value = false;
+  }
+}
 
 async function submitDelete() {
   if (!canDelete.value) return;
   deleting.value = true;
   try {
-    await client.deleteAccount(deleteInput.value.trim());
+    await client.deleteAccount(deleteInput.value.trim(), deleteCode.value.trim());
     session.setUser(null);
     deleteOpen.value = false;
     message.success("账号已注销");
@@ -385,7 +417,7 @@ onMounted(() => {
           注销后账号将无法登录且不可恢复，绑定的手机号与邮箱会被释放，昵称、头像、简介等信息将被清除。
         </p>
       </div>
-      <n-button size="small" type="error" @click="deleteInput = ''; deleteOpen = true">注销账号</n-button>
+      <n-button size="small" type="error" @click="openDelete">注销账号</n-button>
     </div>
 
     <n-modal
@@ -402,6 +434,22 @@ onMounted(() => {
         :placeholder="DELETE_CONFIRM_TEXT"
         @keyup.enter="submitDelete"
       />
+      <!-- 已绑手机号时必须短信验证：注销不可逆，不能只凭一个登录态就抹掉账号 -->
+      <template v-if="boundPhone">
+        <p class="danger-modal-desc danger-modal-desc--gap">
+          请输入 <b>{{ boundPhone }}</b> 收到的验证码。
+        </p>
+        <div class="dauth-code-row">
+          <n-input v-model:value="deleteCode" maxlength="6" placeholder="短信验证码" />
+          <n-button
+            :loading="deleteSending"
+            :disabled="deleteSending || deleteSeconds > 0"
+            @click="sendDeleteCode"
+          >
+            {{ cdLabel(deleteSeconds) }}
+          </n-button>
+        </div>
+      </template>
       <template #footer>
         <div class="danger-actions">
           <n-button @click="deleteOpen = false">取消</n-button>
@@ -574,6 +622,10 @@ onMounted(() => {
   font-size: 13px;
   line-height: 1.6;
   color: var(--dauth-text, #1a1a1a);
+}
+/* 验证码说明与上面的确认串说明之间留出间距 */
+.danger-modal-desc--gap {
+  margin-top: 16px;
 }
 .danger-actions {
   display: flex;
