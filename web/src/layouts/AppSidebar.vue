@@ -141,7 +141,7 @@ async function onUserSelect(key: string) {
         @select="onUserSelect"
       >
         <button class="user" type="button" :title="auth.user?.nickname || ''">
-          <n-avatar :src="auth.user?.avatar_url" :size="28" round>
+          <n-avatar :src="auth.user?.avatar_url" color="transparent" :size="28" round style="color: var(--dauth-text, #3f3f46); border: 1px solid var(--dauth-border, #ececef)">
             <template #fallback>{{ initial }}</template>
           </n-avatar>
           <template v-if="!props.collapsed">

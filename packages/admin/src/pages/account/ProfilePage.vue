@@ -43,8 +43,9 @@ async function onFile(e: Event) {
 <template>
   <n-card class="dauth-page">
     <n-space align="center" style="margin-bottom: 20px">
-      <!-- 首字母必须放在 #fallback：默认插槽会覆盖 src，导致有头像也不渲染图片 -->
-      <n-avatar :src="user?.avatar_url" :size="64" round>
+      <!-- 首字母必须放在 #fallback：默认插槽会覆盖 src，导致有头像也不渲染图片；
+           color=transparent 去掉默认的灰色底 -->
+      <n-avatar :src="user?.avatar_url" color="transparent" :size="64" round style="color: var(--dauth-text, #3f3f46); border: 1px solid var(--dauth-border, #ececef)">
         <template #fallback>{{ user?.nickname?.slice(0, 1) }}</template>
       </n-avatar>
       <n-button @click="file?.click()">
