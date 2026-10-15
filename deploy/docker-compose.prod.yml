@@ -1,0 +1,63 @@
+# ============================================================
+# d-auth 生产部署（业务机，仅应用容器）
+#
+#   PostgreSQL / Redis 使用外部实例，由 .env.prod 的
+#   DATABASE_URL / REDIS_ADDR 指定，本文件不起数据库容器。
+#
+#   业务机（47.95.176.70，内网 172.17.255.64）：
+#     mkdir -p /opt/d-auth && cd /opt/d-auth
+#     放入 docker-compose.prod.yml / deploy-prod.sh / .env.prod（见 deploy/.env.prod.example）
+#     docker login registry.cn-beijing.aliyuncs.com
+#     docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+#     docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+#   端口绑 0.0.0.0:${APP_PORT}（默认 8680），入口机 nginx（172.17.255.63）
+#   经内网 172.17.255.64:8680 反代到此。
+#   ⚠️ 绑所有网卡后公网 EIP 上也会监听，需用安全组只放行入口机内网 172.17.255.63。
+# ============================================================
+
+services:
+  app:
+    image: ${REGISTRY:-registry.cn-beijing.aliyuncs.com/xrv/d-auth}:${DOCKER_TAG:-latest}
+    platform: linux/amd64
+    container_name: dauth-app
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      # 容器内约定值；其余敏感项一律来自 .env.prod
+      APP_ENV: production
+      HTTP_PORT: "8681"
+      DAUTH_JWT_PRIVATE_KEY_PATH: /app/data/jwt-private.pem
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      # 绑所有网卡；入口机经内网 172.17.255.64:8680 访问。
+      - "${APP_PORT:-8680}:80"
+    volumes:
+      - app_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8681/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# 固定网段：容器网络可预测，便于把 docker 网关纳入 DAUTH_TRUSTED_PROXIES。
+# 请求链为 入口机nginx → 宿主:8680 → docker → 容器nginx → 127.0.0.1:8681(Go)，
+# 容器 nginx 会把其直连对端追加进 X-Forwarded-For，该对端取自本网段，
+# 因此需在 DAUTH_TRUSTED_PROXIES 中信任本网段与入口机 IP，否则 XFF 回溯提前停下，
+# 所有用户会被算作同一 IP。
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+
+volumes:
+  app_data:

@@ -1,5 +1,5 @@
 .PHONY: help install api web migrate up down stop tidy \
-	docker-build docker-release docker-run nginx-push \
+	docker-build docker-release docker-push docker-run nginx-push \
 	docker-dev docker-dev-down docker-dev-logs docker-dev-build
 
 help:
@@ -14,6 +14,7 @@ help:
 	@echo "  make docker-dev     本地开发栈（容器内热重载）前端 :$(WEB_PORT)"
 	@echo "  make docker-build   构建发布镜像"
 	@echo "  make docker-release 构建并推送 $(DOCKER_IMAGE):$(DOCKER_TAG)"
+	@echo "  make docker-push    构建 amd64 并推送 $(REGISTRY):{$(RELEASE_TAG),latest}"
 	@echo "  make docker-run     用发布镜像本地试跑 :$(APP_PORT)"
 	@echo "  make nginx-push     推送 deploy/nginx/*.conf 到服务器并 reload nginx"
 	@echo ""
@@ -36,6 +37,9 @@ REDIS_PORT ?= 6379
 DOCKER_IMAGE ?= jianboo/d-auth
 DOCKER_TAG ?= latest
 DOCKER_PLATFORMS ?= linux/amd64
+# 生产推送目标：阿里云北京私有仓库。TAG 默认取 git describe，便于回滚到具体提交。
+REGISTRY ?= registry.cn-beijing.aliyuncs.com/xrv/d-auth
+RELEASE_TAG ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo latest)
 DOCKER_DEV_FILE ?= docker-compose.dev.yml
 # make docker-run 用的容器环境文件，不要复用根目录 .env（那是宿主机直跑 API 的配置）
 DOCKER_ENV_FILE ?= deploy/.env.docker
@@ -147,6 +151,16 @@ docker-release:
 	@echo "发布 $(DOCKER_IMAGE):$(DOCKER_TAG) ($(DOCKER_PLATFORMS))"
 	docker build --platform $(DOCKER_PLATFORMS) -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+# 构建并推送到阿里云私有仓库，同时打 git 版本标签与 latest。
+# 构建阶段在 BUILDPLATFORM 原生跑，Go 交叉编译到 TARGETARCH（见 Dockerfile）。
+# 需先 docker login $(REGISTRY 的域名部分)。覆盖：make docker-push REGISTRY=... RELEASE_TAG=v1.2.3
+docker-push:
+	@echo "推送 $(REGISTRY):$(RELEASE_TAG) 与 :latest ($(DOCKER_PLATFORMS))"
+	docker buildx build --platform $(DOCKER_PLATFORMS) \
+		-t $(REGISTRY):$(RELEASE_TAG) \
+		-t $(REGISTRY):latest \
+		--push .
 
 # 本地试跑发布镜像。镜像已内置 APP_ENV=production / HTTP_PORT=8681 / RUN_MIGRATIONS=true。
 # 端口被占用时覆盖：make docker-run APP_PORT=8690

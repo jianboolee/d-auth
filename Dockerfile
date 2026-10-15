@@ -7,9 +7,14 @@
 #   后端：Go 编译 server / migrate
 #   运行时：nginx 监听 80（对外经 APP_PORT=8680 映射），
 #           /v1、/health、/static 反代到 127.0.0.1:8681
+#
+# 交叉编译：构建阶段钉在 $BUILDPLATFORM（本机 arm64 原生跑，不走 QEMU），
+# Go 用 $TARGETARCH 显式交叉编译（CGO_ENABLED=0，纯静态）。
+# 前端产物是架构无关的 JS，在 arm64 上构建与 amd64 完全一致。
+# 只有最后的运行时阶段落到 $TARGETPLATFORM，故 amd64 镜像里只有 apk 那一步走模拟。
 # ============================================================
 
-FROM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 
 WORKDIR /src
 COPY package.json package-lock.json ./
@@ -21,7 +26,11 @@ RUN npm run build -w @donktech/d-auth-sdk
 WORKDIR /src/web
 RUN npm run build
 
-FROM golang:1.25-alpine AS api
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS api
+
+# BuildKit 自动注入：本机 linux/arm64 -> 目标 linux/amd64
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /src
 COPY api/go.mod api/go.sum ./
@@ -31,8 +40,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY api/ ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server && \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+    go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+    go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
 
 FROM alpine:3.21
 

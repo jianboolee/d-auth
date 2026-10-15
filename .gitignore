@@ -20,6 +20,7 @@ packages/admin/dist/
 # 部署密钥
 deploy/.env
 deploy/.env.docker
+deploy/.env.prod
 
 # IDE
 .idea/
