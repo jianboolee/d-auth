@@ -643,9 +643,11 @@ func (h *Handlers) ConfirmAvatar(c *gin.Context) {
 func (h *Handlers) UploadAvatar(c *gin.Context) {
 	a, _ := contextx.GetActor(c)
 	key := c.Query("key")
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 2<<20))
+	// MaxBytesReader 而非 io.LimitReader：超限读取会直接报错拒绝，
+	// 不会像截断那样把半张图存进对象存储。
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20))
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, "INVALID_BODY", "读取失败")
+		response.Fail(c, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "头像不能超过 2MB")
 		return
 	}
 	u, err := h.Users.SaveAvatarBytes(a.UserID, key, body)
