@@ -65,37 +65,34 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			authg.POST("/wechat/mock-scan", h.WeChatMockScan)
 		}
 
-		me := v1.Group("")
-		me.Use(Authenticate(cfg, authSvc), RequireUser())
-		{
-			// 绑定/更换手机号本身不能要求已有手机号，否则新用户无法完成绑定。
-			me.POST("/me/phone/change", h.ChangePhone)
-
-			// 注销账号同样不要求已绑手机号：手机号已失效、无法绑定的人
-			// 也应该能注销自己的账号（与上面的绑定接口同理）。
-			me.DELETE("/me", h.DeleteAccount)
-			// 注销前的短信验证码：给当前绑定手机号发送，号码由服务端解析。
-			// 与注销同组（不要求已绑手机号），未绑定时由服务端返回 NO_PHONE。
-			me.POST("/me/sms/self", h.SendSelfSMS)
-
-			// 其余账号接口要求已绑定手机号：手机号是主要登录能力，未绑定时
-			// 只放行上面的绑定接口，前端会引导到绑定手机号页。
-			gated := me.Group("")
-			gated.Use(RequirePhone(authSvc))
+			me := v1.Group("")
+			me.Use(Authenticate(cfg, authSvc), RequireUser())
 			{
-				gated.GET("/me", h.Me)
-				gated.PATCH("/me", h.PatchMe)
-				gated.POST("/me/password", h.ChangePassword)
-				gated.POST("/me/email/bind", h.BindEmail)
-				gated.GET("/me/identities", h.Identities)
-				gated.DELETE("/me/identities/:id", h.DeleteIdentity)
-				gated.GET("/me/sessions", h.Sessions)
-				gated.DELETE("/me/sessions/:id", h.DeleteSession)
-				gated.POST("/me/avatar/sign", h.SignAvatar)
-				gated.POST("/me/avatar/confirm", h.ConfirmAvatar)
-				gated.PUT("/me/avatar/upload", h.UploadAvatar)
+				// 绑定/更换手机号本身不能要求已有手机号，否则新用户无法完成绑定。
+				me.POST("/me/phone/change", h.ChangePhone)
+
+				// 注销账号同样不要求已绑手机号：手机号已失效、无法绑定的人
+				// 也应该能注销自己的账号（与上面的绑定接口同理）。
+				me.DELETE("/me", h.DeleteAccount)
+				// 注销前的短信验证码：给当前绑定手机号发送，号码由服务端解析。
+				// 未绑定时由服务端返回 NO_PHONE。
+				me.POST("/me/sms/self", h.SendSelfSMS)
+
+				// 手机号不再是访问账号接口的硬门槛：密码/邮箱注册的用户
+				// 未绑定手机号也能正常读写资料；注销前的短信验证、绑定等
+				// 场景由各自接口自行处理未绑定的情况。
+				me.GET("/me", h.Me)
+				me.PATCH("/me", h.PatchMe)
+				me.POST("/me/password", h.ChangePassword)
+				me.POST("/me/email/bind", h.BindEmail)
+				me.GET("/me/identities", h.Identities)
+				me.DELETE("/me/identities/:id", h.DeleteIdentity)
+				me.GET("/me/sessions", h.Sessions)
+				me.DELETE("/me/sessions/:id", h.DeleteSession)
+				me.POST("/me/avatar/sign", h.SignAvatar)
+				me.POST("/me/avatar/confirm", h.ConfirmAvatar)
+				me.PUT("/me/avatar/upload", h.UploadAvatar)
 			}
-		}
 
 		adminG := v1.Group("/admin")
 		adminG.Use(Authenticate(cfg, authSvc), RequireAdmin())

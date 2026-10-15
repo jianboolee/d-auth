@@ -219,29 +219,6 @@ func RequireUser() gin.HandlerFunc {
 	}
 }
 
-// RequirePhone 拦住尚未绑定手机号的用户。手机号是主要登录能力，未绑定时
-// 只放行绑定手机号本身（POST /me/phone/change），其余账号接口返回 PHONE_REQUIRED。
-// 这里按需查询（只在这组路由上付出一次查询），而不是给所有已登录请求都加开销。
-func RequirePhone(authSvc *auth.Service) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		a, ok := contextx.GetActor(c)
-		if !ok || a.Kind != contextx.ActorUser {
-			response.Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未登录")
-			return
-		}
-		hasPhone, err := authSvc.Store().HasIdentity(a.UserID, models.IdentityPhone)
-		if err != nil {
-			WriteError(c, err)
-			return
-		}
-		if !hasPhone {
-			response.Fail(c, http.StatusForbidden, "PHONE_REQUIRED", "请先绑定手机号")
-			return
-		}
-		c.Next()
-	}
-}
-
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		a, ok := contextx.GetActor(c)

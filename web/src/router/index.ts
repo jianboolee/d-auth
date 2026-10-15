@@ -17,7 +17,7 @@ const router = createRouter({
   routes: <RouteRecordRaw[]>[
     ...createAuthPublicRoutes(),
     ...createAuthLegalRoutes(),
-    // 绑定手机号：无侧栏的独立页，未绑定手机号的用户会被守卫送到这里
+    // 绑定手机号：无侧栏的独立页；不再是强制门槛，用户可从账户安全进入。
     ...createAuthBindPhoneRoutes(),
     {
       path: "/account",
@@ -79,23 +79,20 @@ router.beforeEach(async (to) => {
   if (!auth.loaded) await auth.bootstrap();
   const embed = to.path.startsWith("/embed");
   const accountHome = embed ? "/embed/account/profile" : "/account/profile";
-  const bindPhonePath = embed ? "/embed/account/bind-phone" : "/account/bind-phone";
 
   if (to.meta.legal) return true;
 
-  // 已登录用户访问登录/注册页：有手机号回账户首页，没有则去绑定手机号。
+  // 已登录用户访问登录/注册页：直接回账户首页。
   if (to.meta.public) {
     if (!auth.user) return true;
-    return auth.user.has_phone ? accountHome : bindPhonePath;
+    return accountHome;
   }
 
   if (!auth.user) return embed ? "/embed/login" : "/login";
 
-  // 手机号是主要登录能力：未绑定的用户只能停留在绑定手机号页。
-  if (!auth.user.has_phone) {
-    return to.meta.bindPhone ? true : bindPhonePath;
-  }
-  if (to.meta.bindPhone) return accountHome;
+  // 手机号不再强制绑定：未绑定的用户可以正常进入账户页；
+  // 绑定手机号页保留为可选项（账户安全里入口），已绑定的再访问则回首页。
+  if (to.meta.bindPhone && auth.user.has_phone) return accountHome;
   if (to.meta.admin && !auth.isAdmin) return accountHome;
   return true;
 });
