@@ -318,13 +318,20 @@ export class DAuthClient {
     async uploadAvatar(file) {
         const contentType = file.type || "image/jpeg";
         const signed = await this.signAvatar(contentType);
-        // OSS 直传是跨域请求：签名 URL 自带鉴权，不需要 cookie；若带 credentials，
-        // 浏览器会因 OSS 的 Access-Control-Allow-Origin: * 而拒绝整个响应。
-        // 同源地址（mock 模式的 /v1/...）仍要 cookie 和 X-DAuth-Client 以通过 CSRF 校验。
+        // 上传地址是同源相对路径（mock 与 OSS 服务端中转都是 /v1/...），需要带
+        // cookie 和 X-DAuth-Client 以通过鉴权与 CSRF 校验。保留跨域分支仅为兼容
+        // 旧版服务端签发 OSS 预签名 URL 的情况——那种 URL 自带签名鉴权，不能带
+        // credentials，否则浏览器会因 Access-Control-Allow-Origin: * 拒绝整个响应。
         const crossOrigin = /^https?:\/\//i.test(signed.upload_url);
         const headers = { "Content-Type": contentType };
-        if (!crossOrigin)
+        if (!crossOrigin) {
             headers["X-DAuth-Client"] = this.clientKey;
+            // 同源中转上传走完整鉴权链：token 模式下 raw fetch 不经过 request()，
+            // 需要自己带上与常规请求相同的 Bearer。
+            const token = this.apiKey || this.getAccessToken();
+            if (token)
+                headers["Authorization"] = `Bearer ${token}`;
+        }
         const res = await fetch(signed.upload_url, {
             method: "PUT",
             body: file,

@@ -333,9 +333,9 @@ func (s *Service) SignAvatar(userID string, contentType string) (map[string]any,
 }
 
 func (s *Service) ConfirmAvatar(userID string, objectKey string) (dto.User, error) {
-	key := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
-	if key == "" || !strings.HasPrefix(key, s.cfg.OSSRootDir+"/") || !strings.Contains(key, "/"+idgen.FormatUserID(userID)+"/") {
-		return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "INVALID_KEY", "无效的头像 key")
+	key, err := s.validateAvatarKey(userID, objectKey)
+	if err != nil {
+		return dto.User{}, err
 	}
 	if err := s.store.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{
 		"avatar_key": key, "updated_at": time.Now(),
@@ -346,9 +346,23 @@ func (s *Service) ConfirmAvatar(userID string, objectKey string) (dto.User, erro
 	return s.Me(userID)
 }
 
+// validateAvatarKey 规范化并校验对象键必须落在本用户的目录下，返回干净 key。
+func (s *Service) validateAvatarKey(userID, objectKey string) (string, error) {
+	key := strings.TrimPrefix(strings.TrimSpace(objectKey), "/")
+	if key == "" || !strings.HasPrefix(key, s.cfg.OSSRootDir+"/") || !strings.Contains(key, "/"+idgen.FormatUserID(userID)+"/") {
+		return "", apperr.New(apperr.ErrInvalidArgument, "INVALID_KEY", "无效的头像 key")
+	}
+	return key, nil
+}
+
 func (s *Service) SaveAvatarBytes(userID string, objectKey string, data []byte) (dto.User, error) {
-	if err := s.oss.SaveLocal(objectKey, data); err != nil {
+	// 先校验 key 归属再落盘/上传 OSS，避免越权 key 把数据写进别人的目录。
+	key, err := s.validateAvatarKey(userID, objectKey)
+	if err != nil {
 		return dto.User{}, err
 	}
-	return s.ConfirmAvatar(userID, objectKey)
+	if err := s.oss.Save(key, data); err != nil {
+		return dto.User{}, err
+	}
+	return s.ConfirmAvatar(userID, key)
 }

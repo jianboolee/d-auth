@@ -4,7 +4,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
-	"net/url"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,7 +84,7 @@ func TestPublicURLExternalKeyUntouched(t *testing.T) {
 	}
 }
 
-func TestSaveLocalKeepsDirsAndRejectsEscape(t *testing.T) {
+func TestSaveKeepsDirsAndRejectsEscape(t *testing.T) {
 	cfg := testCfg("uploads")
 
 	dir := t.TempDir()
@@ -96,7 +99,7 @@ func TestSaveLocalKeepsDirsAndRejectsEscape(t *testing.T) {
 
 	store := ossstore.NewMock(cfg)
 	key := "uploads/user-1/avatar.png"
-	if err := store.SaveLocal(key, []byte("data")); err != nil {
+	if err := store.Save(key, []byte("data")); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(filepath.Join("data", "uploads", "user-1", "avatar.png"))
@@ -107,77 +110,146 @@ func TestSaveLocalKeepsDirsAndRejectsEscape(t *testing.T) {
 		t.Fatalf("unexpected body %q", body)
 	}
 
-	if err := store.SaveLocal("other/user-1/avatar.png", []byte("x")); err == nil {
+	if err := store.Save("other/user-1/avatar.png", []byte("x")); err == nil {
 		t.Fatal("expected rejection for key outside root dir")
 	}
-	if err := store.SaveLocal("uploads/../../escape.png", []byte("x")); err == nil {
+	if err := store.Save("uploads/../../escape.png", []byte("x")); err == nil {
 		t.Fatal("expected rejection for escaping key")
 	}
 }
 
-func TestAliyunSignsFullObjectPath(t *testing.T) {
+func TestAliyunSignPutRelaysThroughServer(t *testing.T) {
 	cfg := testCfg("uploads")
 	store := ossstore.NewAliyun(cfg)
 
-	key, upload, public, _, err := store.SignPut("image/webp", "user-1")
+	key, upload, public, headers, err := store.SignPut("image/webp", "user-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(key, "uploads/user-1/") || !strings.HasSuffix(key, ".webp") {
 		t.Fatalf("unexpected key %q", key)
 	}
-	if !strings.Contains(upload, "https://demo-bucket.oss-cn-hangzhou.aliyuncs.com/uploads/user-1/") {
-		t.Fatalf("unexpected upload url %q", upload)
+	// 中转模式：上传地址必须是同源的 /v1 路由，不再出现 OSS 域名或签名参数。
+	if want := "/v1/me/avatar/upload?key=" + key; upload != want {
+		t.Fatalf("unexpected upload url %q want %q", upload, want)
 	}
-	if !strings.Contains(upload, "OSSAccessKeyId=key-id") {
-		t.Fatalf("missing access key in %q", upload)
+	if strings.Contains(upload, "OSSAccessKeyId") || strings.Contains(upload, "aliyuncs") {
+		t.Fatalf("upload url must not be a presigned oss url: %q", upload)
 	}
-	// 上传地址用于存放原图，不带处理后缀；公开地址带后缀。
-	if strings.Contains(upload, "x-oss-process") {
-		t.Fatalf("upload url should not carry suffix: %q", upload)
+	if headers["Content-Type"] != "image/webp" {
+		t.Fatalf("unexpected headers %v", headers)
 	}
+	// 公开地址带处理后缀；上传地址不带。
 	if public != "https://cdn.example.com/"+key+"?x-oss-process=image/resize,m_fill,w_360,h_360" {
 		t.Fatalf("unexpected public url %q", public)
 	}
+	if strings.Contains(public, key) && strings.Contains(upload, "x-oss-process") {
+		t.Fatalf("upload url should not carry suffix: %q", upload)
+	}
 }
 
-// 独立复算 PUT 签名，确认 SignPut 生成的签名与阿里云 V1 签名规则一致
-// （与 OSS 端 StringToSign = "PUT\n\n{Content-Type}\n{Expires}\n/{bucket}/{key}"）。
-func TestAliyunPutSignatureMatchesOSSV1(t *testing.T) {
+// Save 必须用 OSS V1 Header 签名发起 PUT：
+// StringToSign = "PUT\n\n{Content-Type}\n{Date}\n/{bucket}/{key}"，
+// 且 Date 与请求头、Authorization 完全一致。
+func TestAliyunSavePutsObjectWithV1HeaderAuth(t *testing.T) {
 	cfg := testCfg("uploads")
-	store := ossstore.NewAliyun(cfg)
+	var gotAuth, gotDate, gotCT, gotPath, gotBody string
 
-	key, upload, _, _, err := store.SignPut("image/jpeg", "user-1")
-	if err != nil {
-		t.Fatal(err)
+	// endpoint 用 httptest 的 host:port，virtualHost 会拼成 bucket.host:port，
+	// 再用 transport 把请求强行送回测试服务器。
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method = %s, want PUT", r.Method)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		gotDate = r.Header.Get("Date")
+		gotCT = r.Header.Get("Content-Type")
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(ts.Close)
+
+	ep := strings.TrimPrefix(ts.URL, "http://") // host:port
+	cfg.OSSEndpoint = ep
+	store := ossstore.NewAliyun(cfg).WithTransport(rewriteToTestServer(ts))
+
+	key := "uploads/user-1/abc.png"
+	if err := store.Save(key, []byte("PNGDATA")); err != nil {
+		t.Fatalf("save: %v", err)
 	}
 
-	u, err := url.Parse(upload)
-	if err != nil {
-		t.Fatal(err)
+	if gotPath != "/"+key {
+		t.Fatalf("path = %q want /%q", gotPath, key)
 	}
-	q := u.Query()
-	expire := q.Get("Expires")
-	sig := q.Get("Signature")
+	if gotBody != "PNGDATA" {
+		t.Fatalf("body = %q", gotBody)
+	}
+	wantCT := "image/png" // 由扩展名反推
+	if gotCT != wantCT {
+		t.Fatalf("content-type = %q want %q", gotCT, wantCT)
+	}
 
+	wantSigStart := "OSS key-id:"
+	if !strings.HasPrefix(gotAuth, wantSigStart) {
+		t.Fatalf("authorization = %q want prefix %q", gotAuth, wantSigStart)
+	}
 	resource := "/" + cfg.OSSBucket + "/" + key
-	stringToSign := "PUT\n\nimage/jpeg\n" + expire + "\n" + resource
+	stringToSign := "PUT\n\n" + wantCT + "\n" + gotDate + "\n" + resource
 	mac := hmac.New(sha1.New, []byte(cfg.OSSAccessKeySecret))
 	mac.Write([]byte(stringToSign))
-	want := base64.StdEncoding.EncodeToString(mac.Sum(nil))
-
-	if sig != want {
-		t.Fatalf("signature mismatch\n got %q\nwant %q\nstringToSign=%q", sig, want, stringToSign)
-	}
-	// 签名值必须以 base64 原始形态出现在 query 中；"/" "+" "=" 需转义。
-	if strings.Contains(upload, "Signature="+want) {
-		t.Fatalf("signature should be url-escaped in %q", upload)
+	want := wantSigStart + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	if gotAuth != want {
+		t.Fatalf("signature mismatch\n got %q\nwant %q\nstringToSign=%q", gotAuth, want, stringToSign)
 	}
 }
 
-// 嵌套根目录（如 uploads/avatars）在 mock 模式下必须与 SaveLocal 的落盘位置一致，
+func TestAliyunSaveRejectsBadKeys(t *testing.T) {
+	cfg := testCfg("uploads")
+	store := ossstore.NewAliyun(cfg)
+	for _, key := range []string{"", "other/user-1/a.png", "uploads/../../escape.png"} {
+		if err := store.Save(key, []byte("x")); err == nil {
+			t.Fatalf("expected rejection for key %q", key)
+		}
+	}
+}
+
+func TestAliyunSaveSurfacesErrorBody(t *testing.T) {
+	cfg := testCfg("uploads")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "<Error><Code>SignatureDoesNotMatch</Code></Error>")
+	}))
+	t.Cleanup(ts.Close)
+	cfg.OSSEndpoint = strings.TrimPrefix(ts.URL, "http://")
+	store := ossstore.NewAliyun(cfg).WithTransport(rewriteToTestServer(ts))
+
+	err := store.Save("uploads/user-1/a.png", []byte("x"))
+	if err == nil || !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "SignatureDoesNotMatch") {
+		t.Fatalf("expected wrapped 403 error, got %v", err)
+	}
+}
+
+// rewriteToTestServer 把发往 bucket.<endpoint> 的请求改写到测试服务器，
+// 保留原始 Host/路径/头，使签名校验与真实行为一致。
+func rewriteToTestServer(ts *httptest.Server) http.RoundTripper {
+	return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		saved := req.URL.Host
+		req.URL.Scheme = "http"
+		req.URL.Host = strings.TrimPrefix(ts.URL, "http://")
+		req.Host = saved // 虚机机 host 留给断言
+		return http.DefaultTransport.RoundTrip(req)
+	})
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// 嵌套根目录（如 uploads/avatars）在 mock 模式下必须与 Save 的落盘位置一致，
 // 否则 /static/ 路由会因重复前缀而 404。
-func TestSaveLocalNestedRootDir(t *testing.T) {
+func TestSaveNestedRootDir(t *testing.T) {
 	dir := t.TempDir()
 	wd, err := os.Getwd()
 	if err != nil {
@@ -197,7 +269,7 @@ func TestSaveLocalNestedRootDir(t *testing.T) {
 	if !strings.HasPrefix(key, "uploads/avatars/user-1/") {
 		t.Fatalf("unexpected key %q", key)
 	}
-	if err := store.SaveLocal(key, []byte("DATA")); err != nil {
+	if err := store.Save(key, []byte("DATA")); err != nil {
 		t.Fatal(err)
 	}
 	// 落盘路径 = DataRoot + 完整对象键
