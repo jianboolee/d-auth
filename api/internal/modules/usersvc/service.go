@@ -3,6 +3,7 @@ package usersvc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -365,4 +366,18 @@ func (s *Service) SaveAvatarBytes(userID string, objectKey string, data []byte) 
 		return dto.User{}, err
 	}
 	return s.ConfirmAvatar(userID, key)
+}
+
+// SignAvatarForAdmin 与 SignAvatar 同一条签名链路，只把上传地址改写为后台路由，
+// 供管理员代客换头像。调用方（handler）必须先确认操作者是管理员，并校验目标用户存在。
+func (s *Service) SignAvatarForAdmin(targetID string, contentType string) (map[string]any, error) {
+	res, err := s.SignAvatar(targetID, contentType)
+	if err != nil {
+		return nil, err
+	}
+	// 自助端地址是 /v1/me/... 按当前登录者鉴权；后台走独立路由，
+	// 鉴权与 key 归属校验在 handler 里按 URL 上的目标 id 做。
+	res["upload_url"] = fmt.Sprintf("/v1/admin/users/%s/avatar/upload?key=%s",
+		idgen.FormatUserID(targetID), res["object_key"])
+	return res, nil
 }

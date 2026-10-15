@@ -163,6 +163,24 @@ export declare class DAuthClient {
     confirmAvatar(object_key: string): Promise<User>;
     uploadAvatar(file: File): Promise<User>;
     /**
+     * 把头像字节 PUT 到服务端中转地址（同源相对路径）。自助端与后台端共用。
+     * 上传地址需要 cookie 与 X-DAuth-Client 通过鉴权与 CSRF 校验；token 模式下
+     * raw fetch 不经过 request()，要自己带上与常规请求相同的 Bearer。
+     */
+    private relayAvatarUpload;
+    /** 管理员为指定用户签发头像上传凭证，返回的 upload_url 指向后台路由。 */
+    adminSignAvatar(id: string, contentType: string): Promise<{
+        object_key: string;
+        upload_url: string;
+        public_url: string;
+        headers: Record<string, string>;
+    }>;
+    /**
+     * 管理员直接更换指定用户的头像。走服务端中转（PUT 到 sign 返回的 upload_url），
+     * 服务端保存字节并更新头像，返回最新的 avatar_url；无需自助端那样的 confirm。
+     */
+    adminUploadAvatar(id: string, file: File): Promise<string>;
+    /**
      * 后台用户列表。created_from / created_to 是 RFC3339 时间范围（端点开区间，
      * 结束时间通常传「次日 0 点」以包含当天）；sort 支持 created_at /
      * last_login_at / nickname，order 为 asc | desc。

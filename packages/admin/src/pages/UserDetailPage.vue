@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
+  NAvatar,
   NButton,
   NCard,
   NDescriptions,
@@ -42,6 +43,27 @@ const phone = ref("");
 const email = ref("");
 const password = ref("");
 const roleOptions = ref<{ label: string; value: string }[]>([]);
+const avatarInput = ref<HTMLInputElement | null>(null);
+const uploadingAvatar = ref(false);
+
+// 后台代客换头像：SDK 先向后端签名，再把文件 PUT 到后台中转地址；
+// 服务端返回最新的 avatar_url，这里手动回填到本地 user 对象。
+async function onAvatarFile(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const f = input.files?.[0];
+  input.value = "";
+  if (!f || !user.value) return;
+  uploadingAvatar.value = true;
+  try {
+    const avatarUrl = await client.adminUploadAvatar(user.value.id, f);
+    user.value = { ...user.value, avatar_url: avatarUrl };
+    message.success("头像已更新");
+  } catch (err: unknown) {
+    message.error(errMessage(err, "头像更新失败"));
+  } finally {
+    uploadingAvatar.value = false;
+  }
+}
 
 async function load() {
   const id = String(route.params.id);
@@ -138,6 +160,25 @@ onMounted(load);
         返回列表
       </n-button>
       <n-card title="用户详情">
+        <n-space align="center" style="margin-bottom: 16px">
+          <!-- 首字母必须放在 #fallback：默认插槽会覆盖 src，导致有头像也不渲染图片；
+               color=transparent 去掉默认的灰色底 -->
+          <n-avatar :src="user.avatar_url" color="transparent" :size="56" round style="color: var(--dauth-text, #3f3f46); border: 1px solid var(--dauth-border, #ececef)">
+            <template #fallback>{{ user.nickname?.slice(0, 1) }}</template>
+          </n-avatar>
+          <n-button size="small" :loading="uploadingAvatar" @click="avatarInput?.click()">
+            <template #icon><i class="ri-camera-line dauth-ri" /></template>
+            更换头像
+          </n-button>
+          <!-- 与自助端一致：仅 jpeg/png/webp，大小上限由服务端 2MB 限制兜底 -->
+          <input
+            ref="avatarInput"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            hidden
+            @change="onAvatarFile"
+          />
+        </n-space>
         <n-descriptions :column="2">
           <n-descriptions-item label="编号">{{ user.id }}</n-descriptions-item>
           <n-descriptions-item label="状态">

@@ -807,6 +807,59 @@ func (h *Handlers) AdminSetEmail(c *gin.Context) {
 	response.OK(c, u)
 }
 
+// AdminSignAvatar 管理员为指定用户签发头像上传凭证。签名链路与自助端
+// SignAvatar 完全相同，只是上传地址指向后台的 /users/:id/avatar/upload。
+func (h *Handlers) AdminSignAvatar(c *gin.Context) {
+	id, err := idgen.ParseUserID(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	if _, _, err := h.Admin.GetUser(id); err != nil {
+		WriteError(c, err)
+		return
+	}
+	var req signAvatarReq
+	if !response.BindJSON(c, &req) {
+		return
+	}
+	data, err := h.Users.SignAvatarForAdmin(id, req.ContentType)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	response.OK(c, data)
+}
+
+// AdminUploadAvatar 服务端中转上传：字节落在目标用户的 key 下并更新其头像。
+// key 归属校验（key 必须在目标用户目录下）由 usersvc 完成，与自助端同一套规则。
+func (h *Handlers) AdminUploadAvatar(c *gin.Context) {
+	id, err := idgen.ParseUserID(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	// 目标必须存在且未注销：Users 表是墓碑式软删，向已注销用户写头像会留下孤儿对象。
+	if _, _, err := h.Admin.GetUser(id); err != nil {
+		WriteError(c, err)
+		return
+	}
+	key := c.Query("key")
+	// 与自助端 UploadAvatar 同样的读取上限，防止大文件打爆内存。
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20))
+	if err != nil {
+		response.Fail(c, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "头像不能超过 2MB")
+		return
+	}
+	u, err := h.Users.SaveAvatarBytes(id, key, body)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "user.set_avatar", &id, nil)
+	response.OK(c, gin.H{"avatar_url": u.AvatarURL})
+}
+
 // AdminGeneratePhone 生成一个虚拟手机号（120 开头，11 位），供后台建号表单填入。
 // 只生成候选值，不写库；真正入库时仍会在 CreateUser 里再校验一次唯一性。
 func (h *Handlers) AdminGeneratePhone(c *gin.Context) {

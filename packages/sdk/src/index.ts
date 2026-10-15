@@ -423,31 +423,63 @@ export class DAuthClient {
   async uploadAvatar(file: File) {
     const contentType = file.type || "image/jpeg";
     const signed = await this.signAvatar(contentType);
-    // 上传地址是同源相对路径（mock 与 OSS 服务端中转都是 /v1/...），需要带
-    // cookie 和 X-DAuth-Client 以通过鉴权与 CSRF 校验。保留跨域分支仅为兼容
-    // 旧版服务端签发 OSS 预签名 URL 的情况——那种 URL 自带签名鉴权，不能带
-    // credentials，否则浏览器会因 Access-Control-Allow-Origin: * 拒绝整个响应。
-    const crossOrigin = /^https?:\/\//i.test(signed.upload_url);
+    await this.relayAvatarUpload(signed.upload_url, file, contentType);
+    return this.confirmAvatar(signed.object_key);
+  }
+
+  /**
+   * 把头像字节 PUT 到服务端中转地址（同源相对路径）。自助端与后台端共用。
+   * 上传地址需要 cookie 与 X-DAuth-Client 通过鉴权与 CSRF 校验；token 模式下
+   * raw fetch 不经过 request()，要自己带上与常规请求相同的 Bearer。
+   */
+  private async relayAvatarUpload(
+    uploadUrl: string,
+    file: File,
+    contentType: string,
+  ): Promise<unknown> {
+    const crossOrigin = /^https?:\/\//i.test(uploadUrl);
     const headers: Record<string, string> = { "Content-Type": contentType };
     if (!crossOrigin) {
       headers["X-DAuth-Client"] = this.clientKey;
-      // 同源中转上传走完整鉴权链：token 模式下 raw fetch 不经过 request()，
-      // 需要自己带上与常规请求相同的 Bearer。
       const token = this.apiKey || this.getAccessToken();
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(signed.upload_url, {
+    const res = await fetch(crossOrigin ? uploadUrl : `${this.baseURL}${uploadUrl}`, {
       method: "PUT",
       body: file,
       headers,
       credentials: crossOrigin ? "omit" : this.mode === "cookie" ? "include" : "omit",
     });
-    // fetch 只在网络/CORS 失败时抛错；OSS 返回 4xx/5xx 仍会 resolve，
+    // fetch 只在网络/CORS 失败时抛错；服务端返回 4xx/5xx 仍会 resolve，
     // 不检查会继续 confirm 并把坏 key 写入用户资料。
     if (!res.ok) {
       throw new Error(`头像上传失败（HTTP ${res.status}）`);
     }
-    return this.confirmAvatar(signed.object_key);
+    return res.json().catch(() => null);
+  }
+
+  /** 管理员为指定用户签发头像上传凭证，返回的 upload_url 指向后台路由。 */
+  adminSignAvatar(id: string, contentType: string) {
+    return this.request<{
+      object_key: string;
+      upload_url: string;
+      public_url: string;
+      headers: Record<string, string>;
+    }>(`/v1/admin/users/${id}/avatar/sign`, {
+      method: "POST",
+      body: JSON.stringify({ content_type: contentType }),
+    });
+  }
+
+  /**
+   * 管理员直接更换指定用户的头像。走服务端中转（PUT 到 sign 返回的 upload_url），
+   * 服务端保存字节并更新头像，返回最新的 avatar_url；无需自助端那样的 confirm。
+   */
+  async adminUploadAvatar(id: string, file: File) {
+    const contentType = file.type || "image/jpeg";
+    const signed = await this.adminSignAvatar(id, contentType);
+    const data = await this.relayAvatarUpload(signed.upload_url, file, contentType);
+    return (data as { avatar_url?: string } | null)?.avatar_url ?? signed.public_url;
   }
 
   /**

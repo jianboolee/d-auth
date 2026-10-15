@@ -115,6 +115,10 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			adminG.PATCH("/users/:id/phone", RequireScope("users:write"), h.AdminSetPhone)
 			adminG.PATCH("/users/:id/email", RequireScope("users:write"), h.AdminSetEmail)
 			adminG.POST("/users/:id/password", RequireScope("users:write"), h.AdminResetPassword)
+			// 后台代客换头像：与 /me/avatar 同一签名链路，上传地址落在后台路由上；
+			// key 归属按 URL 里的目标用户校验（usersvc.validateAvatarKey）。
+			adminG.POST("/users/:id/avatar/sign", RequireScope("users:write"), h.AdminSignAvatar)
+			adminG.PUT("/users/:id/avatar/upload", RequireScope("users:write"), h.AdminUploadAvatar)
 			// 注销用户（墓碑式删除）不可逆，限超管
 			adminG.DELETE("/users/:id", RequireSuperAdmin(), h.AdminDeleteUser)
 			adminG.GET("/roles", RequireScope("users:read"), h.AdminRoles)
