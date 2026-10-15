@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS auth_clients (
     name TEXT NOT NULL,
     type TEXT NOT NULL,
     -- 跨域来源与可用登录方式不再按应用配置：前者由环境变量
-    -- DAUTH_ALLOWED_ORIGINS 统一控制，后者目前是全局的。
+    -- DAUTH_ALLOWED_ORIGINS 统一控制，后者目前是全局的。这两列原先在这里，
+    -- 现已移除；更早建好的库里残留的旧列由 0004_drop_client_legacy_fields.sql 清理。
     wechat_app_id TEXT NOT NULL DEFAULT '',
     wechat_app_secret_enc TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
