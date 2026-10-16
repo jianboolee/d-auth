@@ -735,6 +735,8 @@ func (h *Handlers) AdminCreateUser(c *gin.Context) {
 
 type patchUserReq struct {
 	Nickname *string  `json:"nickname"`
+	Bio      *string  `json:"bio"`
+	Gender   *int16   `json:"gender"`
 	Status   *string  `json:"status"`
 	Roles    []string `json:"roles"`
 }
@@ -749,7 +751,13 @@ func (h *Handlers) AdminPatchUser(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	u, err := h.Admin.PatchUser(id, req.Nickname, req.Status, req.Roles)
+	u, err := h.Admin.PatchUser(id, admin.PatchUserInput{
+		Nickname: req.Nickname,
+		Bio:      req.Bio,
+		Gender:   req.Gender,
+		Status:   req.Status,
+		Roles:    req.Roles,
+	})
 	if err != nil {
 		WriteError(c, err)
 		return

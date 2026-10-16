@@ -90,11 +90,14 @@ const { access_token, refresh_token, user } = await auth.smsLogin(phone, code);
 await auth.wechatMini("mp_xxx", wxLoginCode);
 ```
 
-### 其它后端（不要把本仓库当 Go 库 import）
+### 其它后端
 
 验登录态：配了 `JWT_SECRET` / `DAUTH_JWT_SECRET` 即为 **HS256**，其它服务共用这把密钥校验（`iss` / `sub` / `roles` / `sid`）。仅 RS256 时才拉 JWKS。
 
 查用户：用控制台创建的 API Key（scope 含 `users:read`）。
+
+> **Go 后端请用 [`packages/gosdk`](../gosdk/README.md)**（独立 Go module，纯标准库、零依赖），
+> 而不是把本 TypeScript 包或 `api/internal/` 当库用。下面是 Node / JS 服务端用法。
 
 ```ts
 import { createDAuthServiceClient } from "@donktech/d-auth-sdk";
@@ -116,6 +119,11 @@ Authorization: Bearer sk-...
 GET /v1/internal/users/:id
 GET /v1/internal/users?phone=+86138...
 ```
+
+> **服务端不要调 `me()` / `session()`**：这两个接口只认**用户登录态**，用 API Key 调用时
+> `me()` 返回 401 `UNAUTHORIZED`，`session()` 返回空对象（`{}`）。服务端要「查当前用户」，
+> 请自己验 JWT 拿 `sub`（22 位用户 ID），再按需用 `internalUser(sub)` 补资料。
+> Go 后端完整对接见 [docs/integration-go.md](../../docs/integration-go.md)。
 
 ### 业务端读用户资料（脱敏）
 

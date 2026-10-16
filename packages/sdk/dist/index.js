@@ -265,12 +265,22 @@ export class DAuthClient {
         this.persistTokens(data);
         return data;
     }
+    /**
+     * 当前登录用户的资料。手机号/邮箱已脱敏。
+     *
+     * 只认用户登录态：用 `createDAuthServiceClient`（API Key）调会返回 401
+     * UNAUTHORIZED —— /v1/me 要求 Actor 是用户。服务端要按用户 ID 查资料请用
+     * `userProfile` / `internalUser`。
+     */
     me() {
         return this.request("/v1/me");
     }
     /**
      * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户与当前会话。
      * 不会返回 token，也不会因未登录报错，适合替代 `me()` 做启动时的登录态判断。
+     *
+     * 同样只认用户登录态：API Key 调用会命中 actor.Kind != user 的分支，
+     * 一律返回空对象而不是用户信息 —— 别用它做服务端「查当前用户」。
      */
     session() {
         return this.request("/v1/auth/session");

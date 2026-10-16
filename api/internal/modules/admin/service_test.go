@@ -585,7 +585,7 @@ func TestUpdatedAtAdvancesOnUserRowWrites(t *testing.T) {
 	// 改昵称应推进
 	before := rewind()
 	nick := "touched-nick"
-	if _, err := svc.PatchUser(u.ID, &nick, nil, nil); err != nil {
+	if _, err := svc.PatchUser(u.ID, PatchUserInput{Nickname: &nick}); err != nil {
 		t.Fatalf("patch nickname: %v", err)
 	}
 	if after := readUpdated(); !after.After(before) {
@@ -608,6 +608,47 @@ func TestUpdatedAtAdvancesOnUserRowWrites(t *testing.T) {
 	}
 	if after := readUpdated(); !after.Equal(before) {
 		t.Errorf("identity rebind writes auth_identities and should not bump auth_users.updated_at: %v -> %v", before, after)
+	}
+}
+
+// 后台 patch 现在也能改 bio / gender（供业务端代客改资料，与自助端 PATCH /me
+// 同语义）。这里钉住：字段确实落库，且未传的字段（指针为 nil）保持原值——
+// 否则一次只想改昵称的调用会把 bio/gender 抹成零值。
+func TestPatchUserUpdatesBioAndGenderWithoutClobberingOthers(t *testing.T) {
+	svc, st := newTestService(t)
+	u := makeTimedUser(t, svc, st, "patch-bio", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
+
+	// 先写入初始 bio / gender，再验证 patch 只动传入的字段。
+	seedBio := "seed-bio"
+	seedGender := int16(1)
+	if _, err := svc.PatchUser(u.ID, PatchUserInput{Bio: &seedBio, Gender: &seedGender}); err != nil {
+		t.Fatalf("seed bio/gender: %v", err)
+	}
+
+	// 只改 bio，gender 不应被零值覆盖。
+	newBio := "updated-bio"
+	got, err := svc.PatchUser(u.ID, PatchUserInput{Bio: &newBio})
+	if err != nil {
+		t.Fatalf("patch bio: %v", err)
+	}
+	if got.Bio != newBio {
+		t.Errorf("bio = %q, want %q", got.Bio, newBio)
+	}
+	if got.Gender != seedGender {
+		t.Errorf("gender = %d, want %d (untouched field must not be zeroed)", got.Gender, seedGender)
+	}
+
+	// 只改 gender，bio 应保留。
+	newGender := int16(2)
+	got, err = svc.PatchUser(u.ID, PatchUserInput{Gender: &newGender})
+	if err != nil {
+		t.Fatalf("patch gender: %v", err)
+	}
+	if got.Gender != newGender {
+		t.Errorf("gender = %d, want %d", got.Gender, newGender)
+	}
+	if got.Bio != newBio {
+		t.Errorf("bio = %q, want %q (untouched field must not be zeroed)", got.Bio, newBio)
 	}
 }
 

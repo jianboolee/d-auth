@@ -92,7 +92,20 @@ const auth = createDAuthClient({
 }
 ```
 
-其它 **Go 服务不要 import 本模块**。推荐 **HS256**：设置 `DAUTH_JWT_SECRET`（或 `JWT_SECRET`）后按该算法签发，其它服务用同一把密钥验 `iss` / `sub` / `roles` / `sid`。未配密钥时仍为 RS256，公钥在 `GET /v1/.well-known/jwks.json`。查改用户用 `Authorization: Bearer sk-...`，或：
+其它 Go 服务推荐 **HS256**：设置 `DAUTH_JWT_SECRET`（或 `JWT_SECRET`）后按该算法签发，其它服务用同一把密钥验 `iss` / `sub` / `roles` / `sid`。未配密钥时仍为 RS256，公钥在 `GET /v1/.well-known/jwks.json`。查改用户用 `Authorization: Bearer sk-...`。
+
+**Go 子系统（如 d-camp）用 [`packages/gosdk`](packages/gosdk/README.md) 一把 API Key 调登录/查/改**，不要复制接口，也不要把 d-auth 的前端域名塞进小程序白名单——由子系统后端代理：
+
+```go
+import dauth "github.com/jianboolee/d-auth/packages/gosdk"
+
+auth := dauth.New(dauth.Options{BaseURL: "https://auth.x-rv.com", APIKey: os.Getenv("DAUTH_API_KEY")})
+tokens, _ := auth.SMSLogin(ctx, phone, code)      // 登录（公开接口，不需要 key）
+me, _ := auth.InternalUser(ctx, tokens.User.ID)   // 查当前用户
+u, _ := auth.PatchUser(ctx, tokens.User.ID, dauth.PatchUserInput{Nickname: &nick})
+```
+
+JS 侧的服务端调用（Node）：
 
 ```ts
 import { createDAuthServiceClient } from "@donktech/d-auth-sdk";
@@ -103,6 +116,14 @@ const auth = createDAuthServiceClient({
 });
 const user = await auth.internalLookup({ phone: "13800000000" });
 ```
+
+**Go 业务后端完整对接**（验签中间件、BFF 代理、凭证怎么选、踩坑）见 [docs/integration-go.md](docs/integration-go.md)。
+
+### 凭证怎么选（一句话）
+
+- 用户态操作（`/v1/me/*`、`/v1/auth/session`）：**只认用户登录态**，API Key 调不通。
+- 查改用户（`/v1/users`、`/v1/internal`、`/v1/admin`）：**只认 API Key（或管理员会话）**，用户 token 调不通。
+- 服务端「查当前登录用户」不要反查 d-auth，自己验 JWT 拿 `sub`。
 
 ## 业务端读取用户资料
 

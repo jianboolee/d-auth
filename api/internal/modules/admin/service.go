@@ -305,27 +305,46 @@ func (s *Service) CreateUser(in CreateUserInput) (dto.User, error) {
 	return u, err
 }
 
-func (s *Service) PatchUser(id string, nickname *string, status *string, roles []string) (dto.User, error) {
+// PatchUserInput 是后台改用户的可选字段集合。指针为 nil 表示不改该字段
+// （与 usersvc.PatchMe 同一约定），Roles 为 nil 表示不动角色。
+//
+// Bio / Gender 与自助端的 PATCH /v1/me 一致，不做取值校验：业务端代客改资料
+// 与用户改自己应保持同一语义。Status 只应是 active / disabled。
+type PatchUserInput struct {
+	Nickname *string
+	Bio      *string
+	Gender   *int16
+	Status   *string
+	Roles    []string
+}
+
+func (s *Service) PatchUser(id string, in PatchUserInput) (dto.User, error) {
 	user, err := s.store.UserByID(id)
 	if err != nil {
 		return dto.User{}, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
 	}
 	updates := map[string]any{"updated_at": time.Now()}
-	if nickname != nil {
-		updates["nickname"] = strings.TrimSpace(*nickname)
+	if in.Nickname != nil {
+		updates["nickname"] = strings.TrimSpace(*in.Nickname)
 	}
-	if status != nil {
-		updates["status"] = *status
+	if in.Bio != nil {
+		updates["bio"] = *in.Bio
+	}
+	if in.Gender != nil {
+		updates["gender"] = *in.Gender
+	}
+	if in.Status != nil {
+		updates["status"] = *in.Status
 	}
 	if err := s.store.DB.Model(user).Updates(updates).Error; err != nil {
 		return dto.User{}, err
 	}
-	if roles != nil {
-		if err := s.store.ReplaceRoles(nil, id, roles); err != nil {
+	if in.Roles != nil {
+		if err := s.store.ReplaceRoles(nil, id, in.Roles); err != nil {
 			return dto.User{}, err
 		}
 	}
-	if status != nil && *status == models.StatusDisabled {
+	if in.Status != nil && *in.Status == models.StatusDisabled {
 		now := time.Now()
 		_ = s.store.DB.Model(&models.Session{}).Where("user_id = ? AND revoked_at IS NULL", id).
 			Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
