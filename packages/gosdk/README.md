@@ -39,10 +39,13 @@ DAUTH_API_KEY=sk-...                   # 上面拿到的密钥
 ## 安装
 
 ```bash
-go get github.com/jianboolee/d-auth/packages/gosdk@v0.1.0
+go get github.com/jianboolee/d-auth/packages/gosdk@main
 ```
 
-本地联调（未打 tag）可在 `go.mod` 里用 `replace` 指向仓库路径：
+> 用 `@main` 取最新；正式发布后再改用版本号（`@v0.1.0`）。版本 tag 形如
+> `packages/gosdk/v0.1.0`（Go 嵌套子模块的约定）。
+
+本地联调（不经过远端）可在 `go.mod` 里用 `replace` 指向仓库路径：
 
 ```
 require github.com/jianboolee/d-auth/packages/gosdk v0.0.0
@@ -50,8 +53,8 @@ replace github.com/jianboolee/d-auth/packages/gosdk => ../d-auth/packages/gosdk
 ```
 
 > 这是 Go module 的**独立子模块**（有自己的 `go.mod`），位于 d-auth 仓库树内。
-> 嵌套模块的版本 tag 形如 `packages/gosdk/v0.1.0`。d-auth 主 API 的代码都在
-> `api/internal/`，外部无法导入，所以本包自带一份与之对齐的类型。
+> d-auth 主 API 的代码都在 `api/internal/`，外部无法导入，所以本包自带一份与之
+> 对齐的类型。
 
 ## 快速开始
 
@@ -194,3 +197,48 @@ if _, err := auth.SetPhone(ctx, id, phone); err != nil {
 
 前端（含小程序 web-view）用 [`@donktech/d-auth-sdk`](../sdk/README.md)；Go 后端用本包。
 两者的接口语义一致。更多集成细节见 [docs/integration-go.md](../../docs/integration-go.md)。
+
+## 附：接入提示词（可直接复制发给子系统）
+
+启动一个新子系统接入时，把下面整段复制给子系统（或它的编程助手）即可。这是一份自包含的
+交接说明，指向本仓库的公开文档。
+
+```text
+对接 d-auth 账户服务（仅供你自己的 Go 后端 + 小程序，不要让小程序直连 d-auth）。
+
+背景：d-auth 是独立的账户中心，负责登录 / 用户资料。你的小程序只能把「自己的域名」加进
+微信白名单，所以由你的 Go 后端持一枚 API Key 代理 d-auth 调用，小程序只跟你的后端通信，
+小程序侧不需要、也不应该出现 auth.x-rv.com。
+
+请先读这两份文档：
+- 接入主文档（先看这个）：https://github.com/jianboolee/d-auth/blob/main/packages/gosdk/README.md
+- 深入参考（拓扑 / BFF / 踩坑）：https://github.com/jianboolee/d-auth/blob/main/docs/integration-go.md
+
+安装客户端：
+  go get github.com/jianboolee/d-auth/packages/gosdk@main
+
+你要向 d-auth 管理员索要 / 确认三样东西：
+1. 一枚 API Key（sk-...）—— 只存后端环境变量，绝不下发到小程序；
+2. 若你的小程序要走微信登录：让 d-auth 侧登记你的小程序 client（client_key + AppID + AppSecret）；
+3. 若你代理用户的短信验证码：让 d-auth 把「你后端的出口 IP」加入 DAUTH_TRUSTED_PROXIES
+   （否则所有用户共用一个 IP 桶，默认 100/小时会被限流）。
+
+你只需要两个环境变量：
+  DAUTH_BASE_URL=https://auth.x-rv.com
+  DAUTH_API_KEY=sk-...
+
+核心用法（Go）：
+  auth := dauth.New(dauth.Options{BaseURL: os.Getenv("DAUTH_BASE_URL"), APIKey: os.Getenv("DAUTH_API_KEY")})
+  tokens, err := auth.SMSLogin(ctx, phone, code)          // 登录（公开接口，不需要 key）
+  me, err := auth.InternalUser(ctx, tokens.User.ID)       // 查当前登录用户（明文）
+  nick := "新昵称"
+  _, err = auth.PatchUser(ctx, tokens.User.ID, dauth.PatchUserInput{Nickname: &nick}) // 改资料
+
+关键约束：
+- 登录接口是公开的，API Key 只用于「服务端查 / 改用户」；
+- API Key 代表子系统、不代表某个用户，要按用户操作需先登录拿到其 id；
+- d-auth 的 token 建议只存你的后端（BFF），小程序用你自己签发的会话凭证；
+- 报错统一是 *dauth.APIError，用 errors.As 取 Code 分支处理。
+
+请据此产出接入方案并实现，遇到不确定的接口 / 字段再回读上面两份文档。
+```
