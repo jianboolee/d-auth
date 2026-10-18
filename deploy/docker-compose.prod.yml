@@ -20,7 +20,7 @@ services:
   app:
     image: ${REGISTRY:-registry.cn-beijing.aliyuncs.com/xrv/d-auth}:${DOCKER_TAG:-latest}
     platform: linux/amd64
-    container_name: dauth-app
+    container_name: d-auth
     restart: unless-stopped
     env_file:
       - .env.prod

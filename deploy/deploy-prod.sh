@@ -57,7 +57,7 @@ ok "docker / compose 可用"
 
 # 端口占用（本项目已有容器时属正常更新）
 if ss -ltn 2>/dev/null | grep -q ":${APP_PORT} "; then
-  echo "ℹ️  端口 ${APP_PORT} 已被占用（若为上次的 dauth-app 属正常，更新会替换）"
+  echo "ℹ️  端口 ${APP_PORT} 已被占用（若为上次的 d-auth 属正常，更新会替换）"
 fi
 
 if [ "$CHECK_ONLY" = "1" ]; then
@@ -74,17 +74,17 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
 
 echo "▶ 等待健康检查"
 for i in $(seq 1 30); do
-  st=$(docker inspect --format '{{.State.Health.Status}}' dauth-app 2>/dev/null || echo starting)
+  st=$(docker inspect --format '{{.State.Health.Status}}' d-auth 2>/dev/null || echo starting)
   echo "   [$i] $st"
   [ "$st" = "healthy" ] && break
-  [ "$st" = "unhealthy" ] && { echo "--- 最近日志 ---"; docker logs --tail 50 dauth-app; fail "容器不健康"; }
+  [ "$st" = "unhealthy" ] && { echo "--- 最近日志 ---"; docker logs --tail 50 d-auth; fail "容器不健康"; }
   sleep 3
 done
 
 echo "▶ 本地探活 http://127.0.0.1:${APP_PORT}/health"
-curl -fsS --max-time 5 "http://127.0.0.1:${APP_PORT}/health" && echo "" || fail "本机 /health 不可达，见 docker logs dauth-app"
+curl -fsS --max-time 5 "http://127.0.0.1:${APP_PORT}/health" && echo "" || fail "本机 /health 不可达，见 docker logs d-auth"
 
 echo ""
 ok "部署完成：http://127.0.0.1:${APP_PORT}（内网 http://172.17.255.64:${APP_PORT}）"
 echo "   入口机反代：https://auth.x-rv.com"
-echo "   查看日志：docker logs -f dauth-app"
+echo "   查看日志：docker logs -f d-auth"
