@@ -92,7 +92,7 @@ const auth = createDAuthClient({
 }
 ```
 
-其它 Go 服务推荐 **HS256**：设置 `DAUTH_JWT_SECRET`（或 `JWT_SECRET`）后按该算法签发，其它服务用同一把密钥验 `iss` / `sub` / `roles` / `sid`。未配密钥时仍为 RS256，公钥在 `GET /v1/.well-known/jwks.json`。查改用户用 `Authorization: Bearer sk-...`。
+其它 Go 服务用 **RS256 + JWKS**（d-auth 默认，`DAUTH_JWT_ALG=RS256`）：私钥不出 d-auth，公钥发布在 `GET /v1/.well-known/jwks.json`，验证方用 [`packages/gosdk`](packages/gosdk/README.md) 的 `Verifier` 本地验签并校验 `iss` / `sub` / `roles` / `sid`，无需共享任何密钥。查改用户用 `Authorization: Bearer sk-...`。
 
 **Go 子系统（如 d-camp）用 [`packages/gosdk`](packages/gosdk/README.md) 一把 API Key 调登录/查/改**，不要复制接口，也不要把 d-auth 的前端域名塞进小程序白名单——由子系统后端代理：
 

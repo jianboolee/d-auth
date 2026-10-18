@@ -26,12 +26,16 @@
 | **小程序 client**（可选） | d-auth 超管 | 控制台「应用 / 小程序」页 | 仅当子系统有**自己的微信小程序**、要走 `WeChatMini` 登录时才需要。填该小程序的 `client_key`（形如 `mp_dcamp`，规则 `^[a-z][a-z0-9_-]{1,31}$`）、AppID 与 AppSecret。 |
 | **可信代理**（速率限制） | d-auth 运维 | d-auth 的 `DAUTH_TRUSTED_PROXIES` | 若子系统后端代理用户的短信验证码，需把**子系统后端出口 IP** 加进去，否则所有用户的发码请求会共用一个 IP 桶（默认 100/小时）而被限流。详见「注意事项」。 |
 
-子系统自己这边只需两个环境变量：
+子系统自己这边需要的环境变量：
 
 ```bash
 DAUTH_BASE_URL=https://auth.x-rv.com   # 或 http://host:8680，不要带 /v1
-DAUTH_API_KEY=sk-...                   # 上面拿到的密钥
+DAUTH_API_KEY=sk-...                   # 上面拿到的密钥（只有查/改用户需要；登录和验签都不需要）
+DAUTH_JWT_ISSUER=https://auth.x-rv.com # 仅验签用：校验 token 的 iss，建议设置
 ```
+
+> **不需要向 d-auth 索要任何 JWT 密钥。** access token 用 RS256 签名，本包的 `Verifier`
+> 从公开的 `/v1/.well-known/jwks.json` 拉公钥本地验签（公钥自动缓存、按 kid 轮换）。
 
 > d-auth 侧地址与端口见仓库根 [README.md](../../README.md)；BFF 拓扑、验签、各接口的字段级细节见
 > [docs/integration-go.md](../../docs/integration-go.md)。
@@ -98,6 +102,31 @@ tokens, err := auth.WeChatMini(ctx, "mp_dcamp", jsCode)
 BFF 建议：d-auth 的 token **只存在你的后端**，用你自己签发的会话 id 索引；小程序只持
 你的会话凭证。这样 d-auth token 不落到客户端。
 
+### 验签用户 access token（RS256 + JWKS）
+
+业务请求带 `Authorization: Bearer <access_token>` 进来时，用本包验签拿用户身份，
+**不需要任何 JWT 密钥**（公钥从 `/v1/.well-known/jwks.json` 自动拉取并按 kid 缓存）：
+
+```go
+v := dauth.NewVerifier(dauth.VerifierOptions{
+    BaseURL: os.Getenv("DAUTH_BASE_URL"),
+    Issuer:  os.Getenv("DAUTH_JWT_ISSUER"),
+})
+
+claims, err := v.VerifyToken(r.Context(), r.Header.Get("Authorization"))
+if err != nil {
+    if errors.Is(err, dauth.ErrKeySourceUnavailable) {
+        http.Error(w, "auth unavailable", http.StatusServiceUnavailable) // d-auth 暂时不可达
+    } else {
+        http.Error(w, "unauthorized", http.StatusUnauthorized)           // 伪造/过期/降级
+    }
+    return
+}
+userID := claims.Subject // 22 位用户 ID；claims.Roles / SessionID / ClientID 同在
+```
+
+完整中间件示例见 [docs/integration-go.md](../../docs/integration-go.md) 第三节。
+
 ### 查当前登录用户 / 用户资料
 
 ```go
@@ -148,6 +177,7 @@ sessions, total, err := auth.UserSessions(ctx, userID, 1, 10)
 | 能力 | 方法 | 需要的凭证 |
 | --- | --- | --- |
 | 短信/密码/邮箱/微信登录、刷新、登出 | `SMSLogin` `PasswordLogin` `EmailRegister` `WeChatMini` `Refresh` `Logout` | **无**（公开接口） |
+| 本地验签用户 access token（RS256 + JWKS） | `NewVerifier` + `Verifier.VerifyToken` | **无**（公钥公开） |
 | 查明文资料（按 id / 手机 / 邮箱） | `InternalUser` `InternalLookup` | `users:read` |
 | 查脱敏资料（单个 / 批量 / 匹配） | `UserProfile` `Users` | `users:read` |
 | 用户列表 / 详情 / 会话 / 统计 / 角色 / 审计 | `ListUsers` `AdminUser` `UserSessions` `Stats` `Roles` `AuditLogs` | `users:read` |
@@ -223,9 +253,10 @@ if _, err := auth.SetPhone(ctx, id, phone); err != nil {
 3. 若你代理用户的短信验证码：让 d-auth 把「你后端的出口 IP」加入 DAUTH_TRUSTED_PROXIES
    （否则所有用户共用一个 IP 桶，默认 100/小时会被限流）。
 
-你只需要两个环境变量：
+你需要的环境变量：
   DAUTH_BASE_URL=https://auth.x-rv.com
-  DAUTH_API_KEY=sk-...
+  DAUTH_API_KEY=sk-...                  # 只有服务端查/改用户需要
+  DAUTH_JWT_ISSUER=https://auth.x-rv.com # 仅验签时用；不需要任何 JWT 密钥
 
 核心用法（Go）：
   auth := dauth.New(dauth.Options{BaseURL: os.Getenv("DAUTH_BASE_URL"), APIKey: os.Getenv("DAUTH_API_KEY")})
@@ -234,8 +265,13 @@ if _, err := auth.SetPhone(ctx, id, phone); err != nil {
   nick := "新昵称"
   _, err = auth.PatchUser(ctx, tokens.User.ID, dauth.PatchUserInput{Nickname: &nick}) // 改资料
 
+  // 验签前端带来的用户 access token（RS256，公钥从 JWKS 自动拉取，无需密钥）：
+  v := dauth.NewVerifier(dauth.VerifierOptions{BaseURL: os.Getenv("DAUTH_BASE_URL"), Issuer: os.Getenv("DAUTH_JWT_ISSUER")})
+  claims, err := v.VerifyToken(r.Context(), r.Header.Get("Authorization")) // claims.Subject = 用户 id
+
 关键约束：
 - 登录接口是公开的，API Key 只用于「服务端查 / 改用户」；
+- 验签走公开的 JWKS（/v1/.well-known/jwks.json），d-auth 不会、也不需要给你 JWT 密钥；
 - API Key 代表子系统、不代表某个用户，要按用户操作需先登录拿到其 id；
 - d-auth 的 token 建议只存你的后端（BFF），小程序用你自己签发的会话凭证；
 - 报错统一是 *dauth.APIError，用 errors.As 取 Code 分支处理。

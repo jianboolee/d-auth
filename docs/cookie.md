@@ -11,4 +11,4 @@
 
 App / 小程序用 `mode: "token"`，不要依赖 Cookie。
 
-其它后端：默认验 HS256（共享 `JWT_SECRET`）；`RS256` 时用 `GET /v1/.well-known/jwks.json`。用户管理用 `Authorization: Bearer sk-...`。
+其它后端：默认验 RS256（公钥在 `GET /v1/.well-known/jwks.json`，Go 用 gosdk 的 `Verifier`）；旧 HS256 部署共享 `DAUTH_JWT_SECRET` 的场景已废弃。用户管理用 `Authorization: Bearer sk-...`。

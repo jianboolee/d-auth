@@ -92,7 +92,7 @@ await auth.wechatMini("mp_xxx", wxLoginCode);
 
 ### 其它后端
 
-验登录态：配了 `JWT_SECRET` / `DAUTH_JWT_SECRET` 即为 **HS256**，其它服务共用这把密钥校验（`iss` / `sub` / `roles` / `sid`）。仅 RS256 时才拉 JWKS。
+验登录态：d-auth 默认 **RS256**，公钥在 `GET /v1/.well-known/jwks.json`，按 token header 的 `kid` 取公钥本地验签（校验 `iss` / `sub` / `roles` / `sid`），无需共享密钥。Go 后端直接用 `packages/gosdk` 的 `Verifier`。
 
 查用户：用控制台创建的 API Key（scope 含 `users:read`）。
 

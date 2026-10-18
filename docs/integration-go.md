@@ -39,8 +39,7 @@
 d-auth 侧（`.env`）：
 
 ```bash
-DAUTH_JWT_ALG=HS256
-DAUTH_JWT_SECRET=<与业务后端共享的强随机串>
+DAUTH_JWT_ALG=RS256                       # 非对称签名，公钥走 /v1/.well-known/jwks.json
 DAUTH_PUBLIC_URL=https://auth.x-rv.com   # 默认 issuer 取它
 # Cookie 模式（业务前端跨子域）另需：
 DAUTH_COOKIE_DOMAIN=.x-rv.com
@@ -48,13 +47,15 @@ DAUTH_COOKIE_SECURE=true
 DAUTH_ALLOWED_ORIGINS=https://a.x-rv.com,https://b.x-rv.com
 ```
 
+> RS256 私钥在 d-auth 首次启动时自动生成（`data/jwt-private.pem`，容器部署落在持久卷里）。
+> **不需要、也不要把任何 JWT 密钥给业务后端**——这是与旧 HS256 方案最大的区别。
+
 业务 Go 后端侧：
 
 ```bash
 DAUTH_BASE_URL=https://auth.x-rv.com    # 或 http://host:8680，不要带 /v1
-DAUTH_JWT_SECRET=<同一把串>
-DAUTH_JWT_ISSUER=https://auth.x-rv.com
-DAUTH_API_KEY=sk-...                    # 控制台「API Keys」创建
+DAUTH_JWT_ISSUER=https://auth.x-rv.com  # 验签时校验 iss
+DAUTH_API_KEY=sk-...                    # 控制台「API Keys」创建；只有查/改用户需要
 ```
 
 控制台为业务前端登记一条 `clients.client_key`（Cookie 写操作需要 `X-DAuth-Client`）。
@@ -93,9 +94,10 @@ DAUTH_API_KEY=sk-...                    # 控制台「API Keys」创建
 - **Web（cookie）**：跨子域共享登录态，JS 拿不到 token，浏览器自动带 `dauth_session` cookie。业务后端从 Cookie 里取 `sid` 或透传 cookie。
 - **App / 第三方（token）**：前端持有 `access_token` + `refresh_token`，业务请求头带 `Authorization: Bearer <access_token>`。
 
-## 三、Go 后端验签中间件（HS256）
+## 三、Go 后端验签中间件（RS256 + JWKS）
 
-推荐 HS256：业务服务与 d-auth 共享 `DAUTH_JWT_SECRET`，验签零网络往返。
+用 `packages/gosdk` 自带的 `Verifier`：公钥从 `GET /v1/.well-known/jwks.json` 自动拉取并按 `kid`
+缓存（默认 5 分钟节流），纯标准库实现，**不需要任何 JWT 密钥、不引入第三方依赖**。
 
 ```go
 // auth.go
@@ -103,58 +105,52 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	dauth "github.com/jianboolee/d-auth/packages/gosdk"
 )
-
-// Claims 是 d-auth access token 的载荷。sub 是 22 位用户 ID（不是 uuid）。
-type Claims struct {
-	Roles     []string `json:"roles"`
-	SessionID string   `json:"sid"`
-	ClientID  string   `json:"cid,omitempty"`
-	jwt.RegisteredClaims
-}
 
 type ctxKey struct{}
 
-// Middleware 校验 Authorization: Bearer <access_token>，把 Claims 注入 context。
+var verifier = dauth.NewVerifier(dauth.VerifierOptions{
+	BaseURL: os.Getenv("DAUTH_BASE_URL"),
+	Issuer:  os.Getenv("DAUTH_JWT_ISSUER"),
+})
+
+// Middleware 校验 Authorization: Bearer <access_token>，把 claims 注入 context。
 func Middleware(next http.Handler) http.Handler {
-	secret := []byte(os.Getenv("DAUTH_JWT_SECRET"))
-	issuer := os.Getenv("DAUTH_JWT_ISSUER")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if raw == "" || raw == r.Header.Get("Authorization") {
+		raw := r.Header.Get("Authorization")
+		if raw == "" || !strings.HasPrefix(raw, "Bearer ") {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		// 必须限定 HS256，否则会接受 alg=none / 非对称降级伪造。
-		tok, err := jwt.ParseWithClaims(raw, &Claims{}, func(t *jwt.Token) (any, error) {
-			return secret, nil
-		}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer(issuer), jwt.WithLeeway(30*time.Second))
+		claims, err := verifier.VerifyToken(r.Context(), raw)
 		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		claims, ok := tok.Claims.(*Claims)
-		if !ok || !tok.Valid {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			// ErrKeySourceUnavailable = 暂时取不到公钥（d-auth 故障），
+			// 返回 503 而不是把用户踢下线；其余（过期/伪造/降级）返回 401。
+			if errors.Is(err, dauth.ErrKeySourceUnavailable) {
+				http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
+			} else {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			}
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, claims)))
 	})
 }
 
-func FromContext(ctx context.Context) (*Claims, bool) {
-	c, ok := ctx.Value(ctxKey{}).(*Claims)
+func FromContext(ctx context.Context) (*dauth.TokenClaims, bool) {
+	c, ok := ctx.Value(ctxKey{}).(*dauth.TokenClaims)
 	return c, ok
 }
 
 // IsAdmin 与 d-auth 的判定一致：admin 或 superadmin。
-func (c *Claims) IsAdmin() bool {
+// （TokenClaims 是 gosdk 的类型，本地判定就写成函数。）
+func IsAdmin(c *dauth.TokenClaims) bool {
 	for _, r := range c.Roles {
 		if r == "admin" || r == "superadmin" {
 			return true
@@ -164,13 +160,11 @@ func (c *Claims) IsAdmin() bool {
 }
 ```
 
-用 RS256 时改用 JWKS（d-auth 未配 `JWT_SECRET` 时默认 RS256）：
+`VerifyToken` 内部强制 `alg=RS256`（拒绝 none/HS256 降级伪造）、按 `kid` 匹配公钥、校验
+`exp`/`iat`（30 秒容差）与 `iss`。返回的 `dauth.TokenClaims` 含 `Subject`（22 位用户 ID，
+不是 uuid）、`Roles`、`SessionID`、`ClientID`、`JTI`、`IssuedAt`、`ExpiresAt`。
 
-```go
-// 拉 GET /v1/.well-known/jwks.json，按 kid 取 RSA 公钥并缓存（keyfunc 需用 JWKS 库）。
-// 注意：HS256 的共享密钥不会出现在 JWKS 里，只能共享密钥验证。
-token, err := jwt.ParseWithClaims(raw, &Claims{}, jwksKeyfunc, jwt.WithValidMethods([]string{"RS256"}))
-```
+> 旧 HS256 方案的共享密钥中间件已废弃：d-auth 不再签发 HS256 token，JWKS 里也不会有对称密钥。
 
 ### 验签的信任边界
 
@@ -191,7 +185,7 @@ token, err := jwt.ParseWithClaims(raw, &Claims{}, jwksKeyfunc, jwt.WithValidMeth
 ```go
 claims, _ := auth.FromContext(r.Context())
 userID := claims.Subject        // 22 位用户 ID
-if claims.IsAdmin() { /* … */ }
+if auth.IsAdmin(claims) { /* … */ }
 ```
 
 ### 4.2 要展示字段：用 API Key 查 d-auth

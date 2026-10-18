@@ -7,7 +7,8 @@
 #   ./deploy-prod.sh --check    # 只做启动前检查，不改动任何东西
 #
 # 前置：
-#   - /opt/d-auth/.env.prod 已填好（至少 DATABASE_URL、REDIS_ADDR、DAUTH_MASTER_KEY、DAUTH_JWT_SECRET）
+#   - /opt/d-auth/.env.prod 已填好（至少 DATABASE_URL、REDIS_ADDR、DAUTH_MASTER_KEY；
+#     RS256 下无需 DAUTH_JWT_SECRET，私钥首启自动生成到 app_data 卷）
 #   - docker login registry.cn-beijing.aliyuncs.com 已登录（账号需有 xrv 命名空间权限）
 set -euo pipefail
 
@@ -35,15 +36,32 @@ APP_PORT=$(getenv APP_PORT); APP_PORT=${APP_PORT:-8680}
 
 # ---------- 启动前检查 ----------
 echo "▶ 启动前检查"
-for k in DATABASE_URL REDIS_ADDR DAUTH_MASTER_KEY DAUTH_JWT_SECRET; do
+for k in DATABASE_URL REDIS_ADDR DAUTH_MASTER_KEY; do
   v=$(getenv "$k")
   [ -n "$v" ] || fail "$ENV_FILE 中 $k 为空，请先填写"
 done
 ok "必填项非空"
 
-jwt=$(getenv DAUTH_JWT_SECRET)
-[ "${#jwt}" -ge 32 ] || fail "DAUTH_JWT_SECRET 只有 ${#jwt} 字符，HS256 生产要求 ≥ 32"
-ok "DAUTH_JWT_SECRET 长度 ${#jwt}（≥32）"
+alg=$(getenv DAUTH_JWT_ALG)
+case "$alg" in
+  RS256)
+    ok "DAUTH_JWT_ALG=RS256（非对称，公钥走 /v1/.well-known/jwks.json；私钥在 app_data 卷的 jwt-private.pem，勿删卷）"
+    if [ -n "$(getenv DAUTH_JWT_SECRET)" ]; then
+      echo "⚠️  DAUTH_JWT_ALG=RS256 时 DAUTH_JWT_SECRET 不生效，建议从 $ENV_FILE 删除"
+    fi
+    ;;
+  HS256|"")
+    jwt=$(getenv DAUTH_JWT_SECRET)
+    if [ -z "$alg" ] && [ -z "$jwt" ]; then
+      fail "$ENV_FILE 未设置 DAUTH_JWT_ALG 且无 DAUTH_JWT_SECRET：请设 DAUTH_JWT_ALG=RS256（推荐）"
+    fi
+    [ "${#jwt}" -ge 32 ] || fail "DAUTH_JWT_SECRET 只有 ${#jwt} 字符，HS256 生产要求 ≥ 32"
+    ok "DAUTH_JWT_ALG=HS256，密钥长度 ${#jwt}（≥32）"
+    ;;
+  *)
+    fail "不支持的 DAUTH_JWT_ALG=$alg（可选 RS256 / HS256）"
+    ;;
+esac
 
 tp=$(getenv DAUTH_TRUSTED_PROXIES)
 case "$tp" in

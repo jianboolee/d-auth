@@ -58,7 +58,9 @@ func NewManager(opts Options) (*Manager, error) {
 	}
 	m := &Manager{issuer: opts.Issuer, accessTTL: opts.AccessTTL, alg: alg}
 
-	if alg == AlgHS256 || strings.TrimSpace(opts.Secret) != "" {
+	// 仅在显式选择 HS256 时加载共享密钥。RS256 部署里即使 env 残留
+	// DAUTH_JWT_SECRET 也不加载，Parse 随之拒绝 HS256 token（切断降级路径）。
+	if alg == AlgHS256 {
 		secret, err := loadOrCreateHMAC(opts)
 		if err != nil {
 			return nil, err

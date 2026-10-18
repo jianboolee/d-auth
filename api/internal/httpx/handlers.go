@@ -68,6 +68,8 @@ func (h *Handlers) Health(c *gin.Context) {
 }
 
 func (h *Handlers) JWKS(c *gin.Context) {
+	// 公钥是公开信息；客户端（gosdk Verifier）按同一节奏缓存，轮换靠 kid。
+	c.Header("Cache-Control", "public, max-age=300")
 	c.JSON(http.StatusOK, h.Auth.JWKS())
 }
 

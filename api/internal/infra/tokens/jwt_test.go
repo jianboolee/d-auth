@@ -88,6 +88,45 @@ func TestAutoAlgUsesHS256WhenSecretSet(t *testing.T) {
 	}
 }
 
+// RS256 部署即使 env 残留 DAUTH_JWT_SECRET，也不得加载 HMAC、不得接受 HS256 token。
+func TestRS256IgnoresResidualSecret(t *testing.T) {
+	secret := "abcdefghijklmnopqrstuvwxyz012345"
+	hs, err := NewManager(Options{
+		Issuer:    "http://d-auth.test",
+		Alg:       AlgHS256,
+		Secret:    secret,
+		AccessTTL: time.Minute,
+		Dev:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := idgen.NewUserID()
+	hsTok, _, err := hs.Sign(uid, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	rs, err := NewManager(Options{
+		Issuer:    "http://d-auth.test",
+		Alg:       AlgRS256,
+		Secret:    secret, // 残留的旧 HS256 配置，应被忽略
+		KeyPath:   filepath.Join(dir, "jwt.pem"),
+		AccessTTL: time.Minute,
+		Dev:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs.hmac) != 0 {
+		t.Fatal("RS256 must not load HMAC secret")
+	}
+	if _, err := rs.Parse(hsTok); err == nil {
+		t.Fatal("RS256 manager must reject HS256 token")
+	}
+}
+
 func TestRejectUnknownAlg(t *testing.T) {
 	_, err := NewManager(Options{Alg: "none", Dev: true, AccessTTL: time.Minute})
 	if err == nil {
