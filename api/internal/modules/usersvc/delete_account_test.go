@@ -73,7 +73,7 @@ func codeOf(err error) string {
 	return "UNC0DED"
 }
 
-// makeUser 建一个带手机号身份与一个会话的活跃用户。
+// makeUser 建一个带手机号身份的活跃用户。
 func makeUser(t *testing.T, st *store.Store, phone string) string {
 	t.Helper()
 	u := &models.User{Nickname: "注销测试", Status: models.StatusActive}
@@ -86,16 +86,8 @@ func makeUser(t *testing.T, st *store.Store, phone string) string {
 	}); err != nil {
 		t.Fatalf("add identity: %v", err)
 	}
-	if err := st.DB.Create(&models.Session{
-		ID: idgen.New(), UserID: u.ID, RefreshTokenHash: "h",
-		IP: "203.0.113.1", UserAgent: "test-agent",
-		ExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
-	}).Error; err != nil {
-		t.Fatalf("create session: %v", err)
-	}
 	t.Cleanup(func() {
-		// 顺序遵循外键依赖：sessions/identities 必须在 user 之前
-		st.DB.Exec("DELETE FROM auth_sessions WHERE user_id = ?", u.ID)
+		// 顺序遵循外键依赖：identities 必须在 user 之前
 		st.DB.Exec("DELETE FROM auth_identities WHERE user_id = ?", u.ID)
 		st.DB.Exec("DELETE FROM auth_user_roles WHERE user_id = ?", u.ID)
 		st.DB.Exec("DELETE FROM auth_users WHERE id = ?", u.ID)
@@ -170,7 +162,6 @@ func TestDeletedIdentityIsReleasedForReRegistration(t *testing.T) {
 		t.Fatalf("create second user: %v", err)
 	}
 	t.Cleanup(func() {
-		st.DB.Exec("DELETE FROM auth_sessions WHERE user_id = ?", u2.ID)
 		st.DB.Exec("DELETE FROM auth_identities WHERE user_id = ?", u2.ID)
 		st.DB.Exec("DELETE FROM auth_user_roles WHERE user_id = ?", u2.ID)
 		st.DB.Exec("DELETE FROM auth_users WHERE id = ?", u2.ID)
@@ -181,21 +172,6 @@ func TestDeletedIdentityIsReleasedForReRegistration(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("phone should be reusable after deletion, got %v", err)
-	}
-}
-
-// 会话被物理删除（不只是 revoked），IP/UA 随之清除。
-func TestDeleteAccountRemovesSessions(t *testing.T) {
-	svc, st := newTestService(t)
-	id := makeUser(t, st, "+8613800000004")
-
-	if err := svc.DeleteAccount(id, DeleteAccountConfirm); err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-	var n int64
-	st.DB.Model(&models.Session{}).Where("user_id = ?", id).Count(&n)
-	if n != 0 {
-		t.Fatalf("sessions should be physically deleted, found %d", n)
 	}
 }
 

@@ -15,7 +15,9 @@ import (
 	"github.com/jianboolee/d-auth/internal/infra/tokens"
 	"github.com/jianboolee/d-auth/internal/infra/wechat"
 	"github.com/jianboolee/d-auth/internal/models"
+	"github.com/jianboolee/d-auth/internal/modules/sessionstore"
 	"github.com/jianboolee/d-auth/internal/modules/store"
+	"github.com/redis/go-redis/v9"
 )
 
 // 需要真实 postgres：通过 PG_TEST_DSN 提供连接串，否则跳过。
@@ -57,12 +59,20 @@ func newWechatTestService(t *testing.T, env string) (*Service, *store.Store) {
 		t.Fatalf("jwt: %v", err)
 	}
 	st := store.New(db)
-	// mock 微信客户端：凭据齐全时会直接返回成功，避免打真网关。
+	// 会话白名单（refresh token）现在存 Redis。测试用 REDIS_TEST_ADDR，缺省 Redis
+	// 不可用——但本文件只验证「凭据缺失时提前报错」这类早退路径，真正的
+	// issueToken 由 TestWeChatMiniProceedsWithCredentials 覆盖，它需要 Redis。
+	// 因此这里允许 sessions 为 nil：早退用例不会走到 issueToken。
 	svc := &Service{
 		cfg:    cfg,
 		store:  st,
 		jwt:    jwtMgr,
 		wechat: &wechat.Mock{AppID: "mock-mini"},
+	}
+	if addr := os.Getenv("REDIS_TEST_ADDR"); addr != "" {
+		rdb := redis.NewClient(&redis.Options{Addr: addr})
+		svc.rdb = rdb
+		svc.sessions = sessionstore.New(rdb, cfg.JWTRefreshTTL)
 	}
 	return svc, st
 }
@@ -127,7 +137,7 @@ func TestWeChatMiniRejectsMissingCredentials(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cl := makeMiniClient(t, svc, st, tc.appID, tc.appSecret)
-			_, _, err := svc.WeChatMini(context.Background(), cl.ClientKey, "js-code", LoginMeta{})
+			_, err := svc.WeChatMini(context.Background(), cl.ClientKey, "js-code", LoginMeta{})
 			if code := wechatCodeOf(err); code != "WECHAT_NOT_CONFIGURED" {
 				t.Fatalf("want WECHAT_NOT_CONFIGURED, got %q (err=%v)", code, err)
 			}
@@ -141,33 +151,37 @@ func TestWeChatMiniAllowsMissingCredentialsInDev(t *testing.T) {
 	svc, st := newWechatTestService(t, "dev")
 	cl := makeMiniClient(t, svc, st, "", "")
 
-	_, _, err := svc.WeChatMini(context.Background(), cl.ClientKey, "js-code", LoginMeta{})
+	_, err := svc.WeChatMini(context.Background(), cl.ClientKey, "js-code", LoginMeta{})
 	if code := wechatCodeOf(err); code == "WECHAT_NOT_CONFIGURED" {
 		t.Fatalf("dev should fall back to the mock, got WECHAT_NOT_CONFIGURED (err=%v)", err)
 	}
 }
 
-// 凭据齐全时应越过这道检查，继续走到换会话（由 mock 客户端返回成功）。
+// 凭据齐全时应越过这道检查，继续走到签发 token（由 mock 客户端返回成功）。
+// 签发会登记 refresh 到 Redis，因此需要 REDIS_TEST_ADDR。
 func TestWeChatMiniProceedsWithCredentials(t *testing.T) {
 	svc, st := newWechatTestService(t, "production")
+	if svc.sessions == nil {
+		t.Skip("REDIS_TEST_ADDR not set")
+	}
 	cl := makeMiniClient(t, svc, st, "wx1234567890abcdef", "real-secret")
 
-	res, sess, err := svc.WeChatMini(context.Background(), cl.ClientKey, "js-code", LoginMeta{})
+	res, err := svc.WeChatMini(context.Background(), cl.ClientKey, "js-code", LoginMeta{})
 	if code := wechatCodeOf(err); code == "WECHAT_NOT_CONFIGURED" {
 		t.Fatalf("credentials were set but guard still rejected: %v", err)
 	}
 	if err != nil {
 		t.Fatalf("mini login: %v", err)
 	}
-	if res == nil || sess == nil {
-		t.Fatal("expected a session to be issued")
+	if res == nil || res.AccessToken == "" || res.RefreshToken == "" {
+		t.Fatal("expected access and refresh tokens to be issued")
 	}
 }
 
 // 未知应用仍应报 UNKNOWN_CLIENT，不受新检查影响。
 func TestWeChatMiniUnknownClient(t *testing.T) {
 	svc, _ := newWechatTestService(t, "production")
-	_, _, err := svc.WeChatMini(context.Background(), "nope_"+uuid.NewString()[:8], "js-code", LoginMeta{})
+	_, err := svc.WeChatMini(context.Background(), "nope_"+uuid.NewString()[:8], "js-code", LoginMeta{})
 	if code := wechatCodeOf(err); code != "UNKNOWN_CLIENT" {
 		t.Fatalf("want UNKNOWN_CLIENT, got %q (err=%v)", code, err)
 	}

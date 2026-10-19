@@ -45,7 +45,7 @@ func newTestService(t *testing.T) (*Service, *store.Store) {
 	cfg := &config.Config{MasterKey: "test-master-key-please-change-32b!!"}
 	// 传 nil 缓存：这些用例只关心客户端生命周期，不涉及用户资料读取；
 	// usercache 的所有方法都接受 nil 接收者。
-	return New(cfg, st, nil), st
+	return New(cfg, st, nil, nil), st
 }
 
 func codeOf(err error) string {
@@ -168,48 +168,18 @@ func TestUpdateClientDisableStopsLookup(t *testing.T) {
 	}
 }
 
-// 删除应用时，引用它的会话必须存活且 client_id 被置空。
-// 这是整个改动的关键点：auth_sessions.client_id 没有 ON DELETE 级联，若不先解绑，
-// DELETE 会直接撞外键失败。
-func TestDeleteClientKeepsSessionsAndNullsClientID(t *testing.T) {
+// 删除应用必须成功。会话归属信息现在存在 Redis（refresh 记录的 cid 字段），
+// Postgres 侧不再有 auth_sessions 外键，因此删应用不再需要先解绑会话。
+func TestDeleteClientSucceeds(t *testing.T) {
 	svc, st := newTestService(t)
 	cl := makeClient(t, svc, uniqueKey("del"))
-
-	user := &models.User{Nickname: "会话归属测试", Status: models.StatusActive}
-	if err := st.CreateUser(nil, user, models.RoleUser); err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	sess := &models.Session{
-		ID:               uuid.New(),
-		UserID:           user.ID,
-		ClientID:         &cl.ID,
-		RefreshTokenHash: "hash",
-		ExpiresAt:        time.Now().Add(time.Hour),
-	}
-	if err := st.DB.Create(sess).Error; err != nil {
-		t.Fatalf("create session: %v", err)
-	}
 
 	if err := svc.DeleteClient(cl.ID); err != nil {
 		t.Fatalf("delete client: %v", err)
 	}
-
 	if _, err := st.ClientByID(cl.ID); err == nil {
 		t.Errorf("client row still present after delete")
 	}
-	var got models.Session
-	if err := st.DB.Where("id = ?", sess.ID).First(&got).Error; err != nil {
-		t.Fatalf("session was deleted along with the client: %v", err)
-	}
-	if got.ClientID != nil {
-		t.Errorf("session client_id = %v, want NULL", *got.ClientID)
-	}
-
-	// 清理会话，避免同一库上反复跑时堆积
-	t.Cleanup(func() {
-		st.DB.Where("user_id = ?", user.ID).Delete(&models.Session{})
-		st.DB.Where("id = ?", user.ID).Delete(&models.User{})
-	})
 }
 
 // 控制台自身的应用禁止改名与删除：前端硬编码了 web_console，改动后要重新部署才能恢复。
@@ -649,146 +619,6 @@ func TestPatchUserUpdatesBioAndGenderWithoutClobberingOthers(t *testing.T) {
 	}
 	if got.Bio != newBio {
 		t.Errorf("bio = %q, want %q (untouched field must not be zeroed)", got.Bio, newBio)
-	}
-}
-
-// makeSession 为指定用户建一条会话，便于验证会话分页。
-func makeSession(t *testing.T, st *store.Store, userID string, ip string, createdAt time.Time, revoked bool) *models.Session {
-	t.Helper()
-	s := &models.Session{
-		ID:               uuid.New(),
-		UserID:           userID,
-		RefreshTokenHash: uuid.NewString(),
-		IP:               ip,
-		UserAgent:        "test-agent",
-		ExpiresAt:        createdAt.Add(24 * time.Hour),
-		CreatedAt:        createdAt,
-		UpdatedAt:        createdAt,
-	}
-	if revoked {
-		rev := createdAt.Add(time.Minute)
-		s.RevokedAt = &rev
-	}
-	if err := st.DB.Create(s).Error; err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	return s
-}
-
-// 会话分页：按创建时间倒序，total 是全部条数而不是当前页条数。
-func TestListUserSessionsPaginates(t *testing.T) {
-	svc, st := newTestService(t)
-	u := makeTimedUser(t, svc, st, "sessions-paging", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
-	t.Cleanup(func() { st.DB.Where("user_id = ?", u.ID).Delete(&models.Session{}) })
-
-	base := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	// 5 条会话，创建时间依次递增，倒序后顺序可预期
-	for i := 0; i < 5; i++ {
-		makeSession(t, st, u.ID, fmt.Sprintf("10.0.0.%d", i), base.Add(time.Duration(i)*time.Minute), false)
-	}
-
-	page1, total, err := svc.ListUserSessions(u.ID, 1, 2)
-	if err != nil {
-		t.Fatalf("page 1: %v", err)
-	}
-	if total != 5 {
-		t.Fatalf("total = %d, want 5 (all rows, not just this page)", total)
-	}
-	if len(page1) != 2 {
-		t.Fatalf("page 1 size = %d, want 2", len(page1))
-	}
-	// 倒序：最新一条在前
-	if page1[0].IP != "10.0.0.4" || page1[1].IP != "10.0.0.3" {
-		t.Fatalf("page 1 = %s,%s want 10.0.0.4,10.0.0.3", page1[0].IP, page1[1].IP)
-	}
-
-	page3, total3, err := svc.ListUserSessions(u.ID, 3, 2)
-	if err != nil {
-		t.Fatalf("page 3: %v", err)
-	}
-	if total3 != 5 {
-		t.Fatalf("page 3 total = %d, want 5", total3)
-	}
-	if len(page3) != 1 || page3[0].IP != "10.0.0.0" {
-		t.Fatalf("last page = %v, want the single oldest row 10.0.0.0", page3)
-	}
-}
-
-// 后台是审计视角：已失效/已下线的会话同样要返回，否则查不到「为什么被踢」。
-func TestListUserSessionsIncludesRevoked(t *testing.T) {
-	svc, st := newTestService(t)
-	u := makeTimedUser(t, svc, st, "sessions-revoked", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
-	t.Cleanup(func() { st.DB.Where("user_id = ?", u.ID).Delete(&models.Session{}) })
-
-	base := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
-	live := makeSession(t, st, u.ID, "10.0.1.1", base, false)
-	dead := makeSession(t, st, u.ID, "10.0.1.2", base.Add(time.Minute), true)
-
-	list, total, err := svc.ListUserSessions(u.ID, 1, 50)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if total != 2 {
-		t.Fatalf("total = %d, want 2 (revoked rows are part of the audit view)", total)
-	}
-	seen := map[uuid.UUID]bool{}
-	for i := range list {
-		seen[list[i].ID] = true
-	}
-	if !seen[live.ID] || !seen[dead.ID] {
-		t.Fatalf("expected both live and revoked sessions, got %d rows", len(list))
-	}
-}
-
-// 会话分页只返回目标用户的会话，不能串到别人那里。
-func TestListUserSessionsScopedToUser(t *testing.T) {
-	svc, st := newTestService(t)
-	mine := makeTimedUser(t, svc, st, "sessions-mine", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
-	other := makeTimedUser(t, svc, st, "sessions-other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
-	t.Cleanup(func() {
-		st.DB.Where("user_id IN ?", []string{mine.ID, other.ID}).Delete(&models.Session{})
-	})
-
-	base := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	makeSession(t, st, mine.ID, "10.0.2.1", base, false)
-	makeSession(t, st, other.ID, "10.0.2.2", base, false)
-	makeSession(t, st, other.ID, "10.0.2.3", base.Add(time.Minute), false)
-
-	list, total, err := svc.ListUserSessions(mine.ID, 1, 50)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if total != 1 || len(list) != 1 || list[0].IP != "10.0.2.1" {
-		t.Fatalf("expected only my session, got total=%d list=%v", total, list)
-	}
-}
-
-// 用户不存在要报 NOT_FOUND，而不是返回空列表（否则前端无法区分「没会话」和「没这个人」）。
-func TestListUserSessionsMissingUser(t *testing.T) {
-	svc, _ := newTestService(t)
-	if _, _, err := svc.ListUserSessions(idgen.NewUserID(), 1, 10); codeOf(err) != "NOT_FOUND" {
-		t.Fatalf("want NOT_FOUND, got %q (err=%v)", codeOf(err), err)
-	}
-}
-
-// 详情不再返回会话：它现在只给基本信息和身份，会话走独立分页接口。
-func TestGetUserNoLongerReturnsSessions(t *testing.T) {
-	svc, st := newTestService(t)
-	u := makeTimedUser(t, svc, st, "detail-no-sessions", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
-	t.Cleanup(func() { st.DB.Where("user_id = ?", u.ID).Delete(&models.Session{}) })
-	makeSession(t, st, u.ID, "10.0.3.1", time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC), false)
-
-	got, _, err := svc.GetUser(u.ID)
-	if err != nil {
-		t.Fatalf("get user: %v", err)
-	}
-	if got.ID == "" {
-		t.Fatal("detail should still return the user")
-	}
-	// 会话仍应能通过独立接口取到（证明不是把数据弄丢了）
-	_, total, err := svc.ListUserSessions(u.ID, 1, 10)
-	if err != nil || total != 1 {
-		t.Fatalf("sessions should still be reachable via the dedicated endpoint: total=%d err=%v", total, err)
 	}
 }
 
