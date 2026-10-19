@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { NForm, NFormItem, NInput, NButton, useMessage } from "naive-ui";
 import { useAdminClient } from "../../client";
 import { useAuthSession } from "../../session";
 import { useAuthPaths } from "../../paths";
+import { resolveReturnTo } from "../../returnto";
 import { errMessage } from "../../labels";
 import AuthShell from "./AuthShell.vue";
 
 const router = useRouter();
+const route = useRoute();
 const client = useAdminClient();
 const session = useAuthSession();
 const paths = useAuthPaths();
@@ -37,7 +39,10 @@ async function submit() {
   try {
     const res = await client.emailRegister(email.value, code.value, password.value, nickname.value);
     session.setUser(res.user);
-    router.push(paths.profile());
+    // 注册也可能由子系统 SSO 流程带进来（return_to 命中白名单则回跳）
+    const back = await resolveReturnTo(route);
+    if (back) window.location.replace(back);
+    else router.push(paths.profile());
   } catch (e: unknown) {
     message.error(errMessage(e));
   } finally {

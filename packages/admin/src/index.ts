@@ -3,6 +3,7 @@ import { setAdminClient, useAdminClient } from "./client";
 import { provideAuthSession, useAuthSession } from "./session";
 import { useAuthPaths, useEmbed } from "./paths";
 import { useConfirm } from "./confirm";
+import { resolveReturnTo } from "./returnto";
 import UsersPage from "./pages/UsersPage.vue";
 import DashboardPage from "./pages/DashboardPage.vue";
 import UserDetailPage from "./pages/UserDetailPage.vue";
@@ -24,7 +25,7 @@ import SessionsPage from "./pages/account/SessionsPage.vue";
 import AgreementsPage from "./pages/account/AgreementsPage.vue";
 import LegalSettingsPage from "./pages/LegalSettingsPage.vue";
 
-export { setAdminClient, useAdminClient, provideAuthSession, useAuthSession, useAuthPaths, useEmbed, useConfirm };
+export { setAdminClient, useAdminClient, provideAuthSession, useAuthSession, useAuthPaths, useEmbed, useConfirm, resolveReturnTo };
 export type { ConfirmOptions } from "./confirm";
 export {
   DashboardPage,

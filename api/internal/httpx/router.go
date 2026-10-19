@@ -43,6 +43,9 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			authg.GET("/session", h.Session)
 			// 用户协议 / 隐私政策（公开读）：登录页在未登录时也会链到这两个页面。
 			authg.GET("/legal", h.Legal)
+			// 登录回跳白名单校验（公开读）：登录页带着 URL 上的 client/return_to
+			// 来问「这个地址允许跳吗」，服务端判定，前端不接触白名单。
+			authg.GET("/return-target", h.ReturnTarget)
 			authg.POST("/sms/send", h.SendSMS)
 			authg.POST("/sms/login", h.SMSLogin)
 			authg.POST("/email/send-code", h.SendEmail)

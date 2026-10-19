@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { NForm, NFormItem, NInput, NButton, NSpace } from "naive-ui";
 import { useAdminClient } from "../../client";
 import { useAuthSession } from "../../session";
 import { useAuthPaths } from "../../paths";
+import { resolveReturnTo } from "../../returnto";
 import { toLocalCNPhone } from "../../phone";
 import { isRateLimited } from "../../ratelimit";
 import { errMessage } from "../../labels";
@@ -13,6 +14,7 @@ import AuthShell from "./AuthShell.vue";
 type LoginMode = "sms" | "password" | "wechat";
 
 const router = useRouter();
+const route = useRoute();
 const client = useAdminClient();
 const session = useAuthSession();
 const paths = useAuthPaths();
@@ -65,6 +67,18 @@ function startCountdown(seconds = 60) {
 
 onUnmounted(clearCountdown);
 
+// 登录成功后的去处：带合法 return_to（子系统 SSO 回跳）则整页跳回子系统——
+// 跨 origin 的导航必须走 window.location，router 出不了本站；校验失败或无
+// return_to 时维持原行为，进账户中心。
+async function afterLogin() {
+  const back = await resolveReturnTo(route);
+  if (back) {
+    window.location.replace(back);
+    return;
+  }
+  router.push(paths.profile());
+}
+
 function onPhoneUpdate(value: string) {
   // 输入框上固定显示 +86，粘贴完整号码（+86/86 开头）时先去掉国家码，
   // 否则会被截成 86138001380。
@@ -107,7 +121,7 @@ async function loginSms() {
   try {
     const res = await client.smsLogin(phone.value.trim(), smsCode.value.trim());
     session.setUser(res.user);
-    router.push(paths.profile());
+    await afterLogin();
   } catch (e: unknown) {
     setTip(errMessage(e), "error");
   } finally {
@@ -125,7 +139,7 @@ async function loginPassword() {
   try {
     const res = await client.passwordLogin(identifier.value.trim(), password.value);
     session.setUser(res.user);
-    router.push(paths.profile());
+    await afterLogin();
   } catch (e: unknown) {
     setTip(errMessage(e), "error");
   } finally {
@@ -246,8 +260,9 @@ function switchMode(next: LoginMode) {
 
       <div v-if="mode === 'password'" class="secondary-action">
         <n-space justify="space-between" style="width: 100%">
-          <n-button text @click="router.push(paths.register())">注册</n-button>
-          <n-button text @click="router.push(paths.forgot())">忘记密码</n-button>
+          <!-- 跳注册/找回保留 query：SSO 流程里新建账号或重置完密码仍能回跳子系统 -->
+          <n-button text @click="router.push({ path: paths.register(), query: route.query })">注册</n-button>
+          <n-button text @click="router.push({ path: paths.forgot(), query: route.query })">忘记密码</n-button>
         </n-space>
       </div>
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { NForm, NFormItem, NInput, NButton, useMessage } from "naive-ui";
 import { useAdminClient } from "../../client";
 import { useAuthPaths } from "../../paths";
@@ -8,6 +8,7 @@ import { errMessage } from "../../labels";
 import AuthShell from "./AuthShell.vue";
 
 const router = useRouter();
+const route = useRoute();
 const client = useAdminClient();
 const paths = useAuthPaths();
 const message = useMessage();
@@ -16,6 +17,11 @@ const code = ref("");
 const password = ref("");
 const sending = ref(false);
 const loading = ref(false);
+
+// 回登录页透传 client/return_to：SSO 流程中重置完密码，登录成功仍能回跳子系统
+function goLogin() {
+  router.push({ path: paths.login(), query: route.query });
+}
 
 async function send() {
   sending.value = true;
@@ -34,7 +40,7 @@ async function submit() {
   try {
     await client.resetPassword(email.value, code.value, password.value);
     message.success("密码已重置");
-    router.push(paths.login());
+    goLogin();
   } catch (e: unknown) {
     message.error(errMessage(e));
   } finally {
@@ -74,7 +80,7 @@ async function submit() {
       </n-button>
     </div>
     <div class="alt-row">
-      <n-button text type="primary" @click="router.push(paths.login())">返回登录</n-button>
+      <n-button text type="primary" @click="goLogin">返回登录</n-button>
     </div>
   </AuthShell>
 </template>

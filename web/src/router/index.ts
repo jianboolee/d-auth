@@ -7,6 +7,7 @@ import {
   createAuthBindPhoneRoutes,
   createAuthLegalRoutes,
   createAuthPublicRoutes,
+  resolveReturnTo,
 } from "@donktech/d-auth-admin";
 import { useAuthStore } from "../stores/auth";
 
@@ -82,9 +83,20 @@ router.beforeEach(async (to) => {
 
   if (to.meta.legal) return true;
 
-  // 已登录用户访问登录/注册页：直接回账户首页。
+  // 已登录用户访问登录/注册页：
+  // - 带着 SSO 回跳参数（client + 命中白名单的 return_to）访问时，直接整页跳回
+  //   子系统——中心会话仍有效，这正是免登回跳的核心场景；
+  // - 否则回账户中心（原行为）。
   if (to.meta.public) {
     if (!auth.user) return true;
+    if (to.query.return_to) {
+      const back = await resolveReturnTo(to);
+      if (back) {
+        window.location.replace(back);
+        // 整页导航已发起，取消本次站内跳转，避免守卫先把用户带去账户中心。
+        return false;
+      }
+    }
     return accountHome;
   }
 

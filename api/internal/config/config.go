@@ -25,6 +25,10 @@ type Config struct {
 	CookieSecure   bool
 	CookieName     string
 	AllowedOrigins []string
+	// ReturnOrigins 是登录回跳（/login?return_to=）允许的 origin 白名单，环境级、
+	// 不区分 client（硬化到 per-client 的路径见 docs/sso-return-to.md）。条目应是
+	// scheme://host[:port] 形式的 origin，匹配时同样只比 origin，URL 其余部分原样回跳。
+	ReturnOrigins []string
 
 	JWTIssuer         string
 	JWTAlg            string
@@ -108,6 +112,7 @@ func Load() *Config {
 	)
 	webOrigin := env("DAUTH_WEB_ORIGIN", "http://localhost:8682")
 	origins := splitCSV(env("DAUTH_ALLOWED_ORIGINS", "http://localhost:8682,http://127.0.0.1:8682,http://localhost:8680,http://127.0.0.1:8680"))
+	returnOrigins := splitCSV(env("DAUTH_ALLOWED_RETURN_ORIGINS", "http://localhost:5200,http://127.0.0.1:5200"))
 
 	dsn := firstNonEmpty(
 		env("DAUTH_POSTGRES_DSN", ""),
@@ -152,6 +157,7 @@ func Load() *Config {
 		CookieSecure:             envBool("DAUTH_COOKIE_SECURE", false),
 		CookieName:               env("DAUTH_COOKIE_NAME", "dauth_session"),
 		AllowedOrigins:           origins,
+		ReturnOrigins:            returnOrigins,
 		JWTIssuer:                firstNonEmpty(env("DAUTH_JWT_ISSUER", ""), strings.TrimRight(publicURL, "/")),
 		JWTAlg:                   env("DAUTH_JWT_ALG", env("JWT_ALG", "")),
 		JWTSecret:                firstNonEmpty(env("DAUTH_JWT_SECRET", ""), env("JWT_SECRET", "")),

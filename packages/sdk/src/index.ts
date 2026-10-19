@@ -377,6 +377,16 @@ export class DAuthClient {
     return this.request<{ user?: User; session?: Session }>("/v1/auth/session");
   }
 
+  /**
+   * 登录回跳校验：把 URL 上的 client 与 return_to 交给服务端白名单判定。
+   * 命中返回 `{allowed:true, url}`，否则 `{allowed:false}`。公开接口，
+   * 永远 200；网络/接口异常由调用方按「不允许」处理。
+   */
+  resolveReturnTarget(client: string, returnTo: string) {
+    const q = new URLSearchParams({ client, return_to: returnTo });
+    return this.request<{ allowed: boolean; url?: string }>(`/v1/auth/return-target?${q}`);
+  }
+
   patchMe(body: { nickname?: string; bio?: string; gender?: number }) {
     return this.request<User>("/v1/me", { method: "PATCH", body: JSON.stringify(body) });
   }
