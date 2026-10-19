@@ -367,14 +367,14 @@ export class DAuthClient {
   }
 
   /**
-   * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户与当前会话。
+   * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户。
    * 不会返回 token，也不会因未登录报错，适合替代 `me()` 做启动时的登录态判断。
    *
    * 同样只认用户登录态：API Key 调用会命中 actor.Kind != user 的分支，
    * 一律返回空对象而不是用户信息 —— 别用它做服务端「查当前用户」。
    */
   session() {
-    return this.request<{ user?: User; session?: Session }>("/v1/auth/session");
+    return this.request<{ user?: User }>("/v1/auth/session");
   }
 
   /**
@@ -416,14 +416,6 @@ export class DAuthClient {
 
   deleteIdentity(id: string) {
     return this.request(`/v1/me/identities/${id}`, { method: "DELETE" });
-  }
-
-  sessions() {
-    return this.request<Session[]>("/v1/me/sessions");
-  }
-
-  deleteSession(id: string) {
-    return this.request(`/v1/me/sessions/${id}`, { method: "DELETE" });
   }
 
   signAvatar(content_type: string) {
@@ -527,23 +519,9 @@ export class DAuthClient {
     );
   }
 
-  /** 用户详情。会话不在此返回，用 adminUserSessions 单独分页获取。 */
+  /** 用户详情。会话不再随用户返回，也不再有会话列表接口（会话状态已归 Redis 白名单）。 */
   adminUser(id: string) {
     return this.request<{ user: User; identities: Identity[] }>(`/v1/admin/users/${id}`);
-  }
-
-  /**
-   * 用户登录会话，分页返回。后台是审计视角：已失效/已下线的会话同样返回，
-   * 用 revoked_at 区分状态。
-   */
-  adminUserSessions(id: string, params: { page?: number; size?: number } = {}) {
-    const qs = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined) qs.set(k, String(v));
-    });
-    return this.request<{ items: Session[]; total: number; page: number; size: number }>(
-      `/v1/admin/users/${id}/sessions?${qs.toString()}`,
-    );
   }
 
   /**
@@ -749,18 +727,6 @@ export type Identity = {
   identifier: string;
   extra: Record<string, unknown>;
   verified_at?: string | null;
-  created_at: string;
-};
-
-export type Session = {
-  id: string;
-  ip: string;
-  /** 已归纳的设备描述，如 "Chrome 152 · macOS" */
-  device: string;
-  /** 原始 User-Agent，仅用于排查问题 */
-  user_agent: string;
-  expires_at: string;
-  revoked_at?: string | null;
   created_at: string;
 };
 

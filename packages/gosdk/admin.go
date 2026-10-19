@@ -75,26 +75,6 @@ func (c *Client) AdminUser(ctx context.Context, id string) (*User, []Identity, e
 	return &out.User, out.Identities, nil
 }
 
-// UserSessions 分页取某用户的登录会话（/v1/admin/users/:id/sessions）。
-// 后台是审计视角：已失效/已下线的会话同样返回，用 RevokedAt 区分。需要 users:read。
-func (c *Client) UserSessions(ctx context.Context, id string, page, size int) ([]Session, int64, error) {
-	vals := url.Values{}
-	if page > 0 {
-		vals.Set("page", strconv.Itoa(page))
-	}
-	if size > 0 {
-		vals.Set("size", strconv.Itoa(size))
-	}
-	var out struct {
-		Items []Session `json:"items"`
-		Total int64     `json:"total"`
-	}
-	if err := c.do(ctx, "GET", "/v1/admin/users/"+url.PathEscape(id)+"/sessions", vals, nil, &out); err != nil {
-		return nil, 0, err
-	}
-	return out.Items, out.Total, nil
-}
-
 // Stats 取仪表盘统计（/v1/admin/stats）。需要 users:read 密钥。
 func (c *Client) Stats(ctx context.Context) (*UserStats, error) {
 	var out UserStats

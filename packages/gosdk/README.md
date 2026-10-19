@@ -169,18 +169,40 @@ page, err := auth.ListUsers(ctx, dauth.UserListQuery{Q: "张", Status: "active",
 stats, err := auth.Stats(ctx)
 roles, err := auth.Roles(ctx)
 logs, total, err := auth.AuditLogs(ctx, "", 1, 20)
-sessions, total, err := auth.UserSessions(ctx, userID, 1, 10)
 ```
+
+## 在业务后端判断「前端是否已登录」（whoami）
+
+access token 现在同时放在 `dauth_access` cookie 里（HttpOnly，前端 JS 读不到），
+业务后端可以直接读它验签，不必再调用 d-auth 探针：
+
+```go
+v := dauth.NewVerifier(dauth.VerifierOptions{BaseURL: os.Getenv("DAUTH_BASE_URL"), Issuer: os.Getenv("DAUTH_JWT_ISSUER")})
+
+// 在你的 whoami / 中间件里：
+claims, err := v.VerifyRequest(r.Context(), r, "") // 默认读 dauth_access cookie，也接受 Authorization: Bearer
+if errors.Is(err, dauth.ErrInvalidToken) {
+    // 未登录或已过期 → 让前端去 d-auth 续期后重试（见下）
+    http.Error(w, "unauthorized", http.StatusUnauthorized)
+    return
+}
+userID := claims.Subject
+```
+
+- refresh token 在另一枚 cookie（`dauth_refresh`，Path 限死 `/v1/auth`），**业务系统永远收不到**，
+  续期只能由前端向 d-auth 发起（同站 XHR，见下）。
+- access token 默认 1 小时过期。前端某次请求 401 时，调一次
+  `POST {DAUTH_BASE_URL}/v1/auth/refresh`（`credentials: "include"`）拿到新 cookie 后重试即可。
 
 ## 能力矩阵
 
 | 能力 | 方法 | 需要的凭证 |
 | --- | --- | --- |
 | 短信/密码/邮箱/微信登录、刷新、登出 | `SMSLogin` `PasswordLogin` `EmailRegister` `WeChatMini` `Refresh` `Logout` | **无**（公开接口） |
-| 本地验签用户 access token（RS256 + JWKS） | `NewVerifier` + `Verifier.VerifyToken` | **无**（公钥公开） |
+| 本地验签用户 access token（RS256 + JWKS） | `NewVerifier` + `Verifier.VerifyToken` / `Verifier.VerifyRequest` | **无**（公钥公开） |
 | 查明文资料（按 id / 手机 / 邮箱） | `InternalUser` `InternalLookup` | `users:read` |
 | 查脱敏资料（单个 / 批量 / 匹配） | `UserProfile` `Users` | `users:read` |
-| 用户列表 / 详情 / 会话 / 统计 / 角色 / 审计 | `ListUsers` `AdminUser` `UserSessions` `Stats` `Roles` `AuditLogs` | `users:read` |
+| 用户列表 / 详情 / 统计 / 角色 / 审计 | `ListUsers` `AdminUser` `Stats` `Roles` `AuditLogs` | `users:read` |
 | 建号 / 改资料 / 改绑 / 重置密码 / 头像 | `CreateUser` `PatchUser` `SetPhone` `SetEmail` `AdminResetPassword` `AdminSignAvatar` `AdminUploadAvatar` | `users:write` |
 | 注销用户（不可逆） | `DeleteUser` | **超管会话**（API Key 会被拒） |
 
@@ -265,13 +287,19 @@ if _, err := auth.SetPhone(ctx, id, phone); err != nil {
   nick := "新昵称"
   _, err = auth.PatchUser(ctx, tokens.User.ID, dauth.PatchUserInput{Nickname: &nick}) // 改资料
 
-  // 验签前端带来的用户 access token（RS256，公钥从 JWKS 自动拉取，无需密钥）：
+  // 验签用户 access token（RS256，公钥从 JWKS 自动拉取，无需密钥）：
+  // VerifyRequest 优先读 Authorization: Bearer，其次读 dauth_access cookie（HttpOnly）。
   v := dauth.NewVerifier(dauth.VerifierOptions{BaseURL: os.Getenv("DAUTH_BASE_URL"), Issuer: os.Getenv("DAUTH_JWT_ISSUER")})
-  claims, err := v.VerifyToken(r.Context(), r.Header.Get("Authorization")) // claims.Subject = 用户 id
+  claims, err := v.VerifyRequest(r.Context(), r, "") // claims.Subject = 用户 id
 
 关键约束：
 - 登录接口是公开的，API Key 只用于「服务端查 / 改用户」；
 - 验签走公开的 JWKS（/v1/.well-known/jwks.json），d-auth 不会、也不需要给你 JWT 密钥；
+- access token 默认 1 小时过期，同时放在 dauth_access cookie 里（HttpOnly，前端读不到），
+  业务后端读它验签即可判断登录态，不必调用 d-auth 探针；
+- 过期后由前端向 d-auth 发一次 POST /v1/auth/refresh（credentials: include）续期——refresh token
+  在另一枚 cookie（Path 限死 /v1/auth），业务系统收不到，无法自己续；
+- 读路径是纯验签：停用/改密后旧 access token 最多还能用一个 TTL（1h）窗口，这是既定取舍；
 - API Key 代表子系统、不代表某个用户，要按用户操作需先登录拿到其 id；
 - d-auth 的 token 建议只存你的后端（BFF），小程序用你自己签发的会话凭证；
 - 报错统一是 *dauth.APIError，用 errors.As 取 Code 分支处理。

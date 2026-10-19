@@ -103,7 +103,7 @@ func (f *fakeAuth) validToken(issuer string) string {
 			"iss": issuer, "sub": "u1234567890abcdefghijklmn",
 			"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(),
 			"jti": "jti-1", "roles": []string{"user"},
-			"sid": "sess-uuid", "cid": "client-uuid",
+			"cid": "client-uuid",
 		})
 }
 
@@ -124,7 +124,7 @@ func TestVerifyTokenOK(t *testing.T) {
 	if len(claims.Roles) != 1 || claims.Roles[0] != "user" {
 		t.Fatalf("roles=%v", claims.Roles)
 	}
-	if claims.SessionID != "sess-uuid" || claims.ClientID != "client-uuid" || claims.JTI != "jti-1" {
+	if claims.ClientID != "client-uuid" || claims.JTI != "jti-1" {
 		t.Fatalf("claims=%+v", claims)
 	}
 	if claims.ExpiresAt.Before(time.Now()) {
@@ -295,5 +295,36 @@ func TestRSAPublicKeyShape(t *testing.T) {
 	pub := &rsa.PublicKey{N: new(big.Int).SetBytes(key.N.Bytes()), E: key.E}
 	if pub.N.Cmp(key.PublicKey.N) != 0 || pub.E != key.PublicKey.E {
 		t.Fatal("pubkey reconstruction mismatch")
+	}
+}
+
+func TestVerifyRequestFromCookie(t *testing.T) {
+	f := newFakeAuth(t)
+	v := newVerifier(f, "http://d-auth.test")
+	tok := f.validToken("http://d-auth.test")
+
+	// 只有 cookie（浏览器场景）：应验签通过。
+	req := httptest.NewRequest(http.MethodGet, "/whoami", nil)
+	req.AddCookie(&http.Cookie{Name: DefaultAccessCookieName, Value: tok})
+	claims, err := v.VerifyRequest(context.Background(), req, "")
+	if err != nil {
+		t.Fatalf("cookie verify: %v", err)
+	}
+	if claims.Subject != "u1234567890abcdefghijklmn" {
+		t.Fatalf("sub=%q", claims.Subject)
+	}
+
+	// Bearer 优先于 cookie。
+	req2 := httptest.NewRequest(http.MethodGet, "/whoami", nil)
+	req2.Header.Set("Authorization", "Bearer "+tok)
+	req2.AddCookie(&http.Cookie{Name: DefaultAccessCookieName, Value: "garbage"})
+	if _, err := v.VerifyRequest(context.Background(), req2, ""); err != nil {
+		t.Fatalf("bearer should take precedence: %v", err)
+	}
+
+	// 两者都没有：未登录，返回 ErrInvalidToken。
+	req3 := httptest.NewRequest(http.MethodGet, "/whoami", nil)
+	if _, err := v.VerifyRequest(context.Background(), req3, ""); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("want ErrInvalidToken when no credential, got %v", err)
 	}
 }

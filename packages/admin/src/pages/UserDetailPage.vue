@@ -77,11 +77,6 @@ async function load() {
   roleOptions.value = rs.map((r) => ({ label: r.name || roleLabel(r.code), value: r.code }));
 }
 
-function openSessions() {
-  if (!user.value) return;
-  router.push(`${props.basePath ?? "/admin"}/users/${user.value.id}/sessions`);
-}
-
 async function save() {
   if (!user.value) return;
   const id = user.value.id;
@@ -234,13 +229,6 @@ onMounted(load);
           <i class="ri-inbox-2-line dauth-ri" />
           暂无数据
         </div>
-      </n-card>
-      <!-- 会话数量可能很多，独立成页并分页展示；这里只放入口。 -->
-      <n-card title="会话">
-        <n-button @click="openSessions">
-          <template #icon><i class="ri-history-line dauth-ri" /></template>
-          查看会话记录
-        </n-button>
       </n-card>
     </n-space>
   </div>

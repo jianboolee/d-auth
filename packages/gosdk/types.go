@@ -77,17 +77,6 @@ type Identity struct {
 	CreatedAt  time.Time      `json:"created_at"`
 }
 
-// Session 是一条登录会话。Device 是已归纳的设备描述（如 "Chrome 152 · macOS"）。
-type Session struct {
-	ID        string     `json:"id"`
-	IP        string     `json:"ip"`
-	Device    string     `json:"device"`
-	UserAgent string     `json:"user_agent"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	RevokedAt *time.Time `json:"revoked_at"`
-	CreatedAt time.Time  `json:"created_at"`
-}
-
 // Role 是一个角色。
 type Role struct {
 	ID          string    `json:"id"`

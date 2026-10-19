@@ -23,7 +23,6 @@ type TokenClaims struct {
 	Subject   string    // sub：用户 ID（22 位小写字母数字串）
 	Issuer    string    // iss
 	Roles     []string  // roles：角色码列表
-	SessionID string    // sid：会话 UUID
 	ClientID  string    // cid：应用 UUID（登录时带 X-DAuth-Client 才有）
 	JTI       string    // jti：token 唯一 ID
 	IssuedAt  time.Time // iat
@@ -157,6 +156,29 @@ func (v *Verifier) VerifyToken(ctx context.Context, raw string) (*TokenClaims, e
 // AlgRS256 是本包唯一接受的签名算法。
 const AlgRS256 = "RS256"
 
+// DefaultAccessCookieName 是承载 access JWT 的 cookie 默认名（与服务端
+// DAUTH_COOKIE_NAME 一致）。子系统做 whoami 时读它即可。
+const DefaultAccessCookieName = "dauth_access"
+
+// VerifyRequest 从请求里取出 access token 并验签：优先 Authorization: Bearer，
+// 其次读 cookie（默认 dauth_access）。命中其一即返回声明。
+//
+// 这是子系统「判断前端是否已登录」的推荐入口——cookie 是 HttpOnly 的，
+// 前端 JS 读不到，必须由后端验签后通过 whoami 之类的接口把结果透给前端。
+// cookie 未携带（未登录）时返回包装了 ErrInvalidToken 的错误。
+func (v *Verifier) VerifyRequest(ctx context.Context, r *http.Request, cookieName string) (*TokenClaims, error) {
+	if h := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(h, "Bearer ") {
+		return v.VerifyToken(ctx, h)
+	}
+	if cookieName == "" {
+		cookieName = DefaultAccessCookieName
+	}
+	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
+		return v.VerifyToken(ctx, c.Value)
+	}
+	return nil, fmt.Errorf("%w: 请求中既无 Bearer 也无 cookie %q", ErrInvalidToken, cookieName)
+}
+
 // publicKey 按 kid 取公钥：缓存未命中则（节流地）重拉 JWKS 再查一次。
 // 语义约定：
 //   - 节流窗口内未命中 → ErrInvalidToken（列表刚拉过就是最新的，没有这个 kid
@@ -267,18 +289,16 @@ type jwtPayload struct {
 	Iat   int64    `json:"iat"`
 	JTI   string   `json:"jti"`
 	Roles []string `json:"roles"`
-	SID   string   `json:"sid"`
 	CID   string   `json:"cid"`
 }
 
 func (p *jwtPayload) toClaims() *TokenClaims {
 	c := &TokenClaims{
-		Subject:   p.Sub,
-		Issuer:    p.Iss,
-		Roles:     p.Roles,
-		SessionID: p.SID,
-		ClientID:  p.CID,
-		JTI:       p.JTI,
+		Subject:  p.Sub,
+		Issuer:   p.Iss,
+		Roles:    p.Roles,
+		ClientID: p.CID,
+		JTI:      p.JTI,
 	}
 	if p.Iat != 0 {
 		c.IssuedAt = time.Unix(p.Iat, 0)

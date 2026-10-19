@@ -7,7 +7,6 @@ import { resolveReturnTo } from "./returnto";
 import UsersPage from "./pages/UsersPage.vue";
 import DashboardPage from "./pages/DashboardPage.vue";
 import UserDetailPage from "./pages/UserDetailPage.vue";
-import UserSessionsPage from "./pages/UserSessionsPage.vue";
 import RolesPage from "./pages/RolesPage.vue";
 import ClientsPage from "./pages/ClientsPage.vue";
 import ApiKeysPage from "./pages/ApiKeysPage.vue";
@@ -21,7 +20,6 @@ import TermsPage from "./pages/legal/TermsPage.vue";
 import PrivacyPage from "./pages/legal/PrivacyPage.vue";
 import ProfilePage from "./pages/account/ProfilePage.vue";
 import SecurityPage from "./pages/account/SecurityPage.vue";
-import SessionsPage from "./pages/account/SessionsPage.vue";
 import AgreementsPage from "./pages/account/AgreementsPage.vue";
 import LegalSettingsPage from "./pages/LegalSettingsPage.vue";
 
@@ -31,7 +29,6 @@ export {
   DashboardPage,
   UsersPage,
   UserDetailPage,
-  UserSessionsPage,
   RolesPage,
   ClientsPage,
   ApiKeysPage,
@@ -45,7 +42,6 @@ export {
   PrivacyPage,
   ProfilePage,
   SecurityPage,
-  SessionsPage,
   AgreementsPage,
   LegalSettingsPage,
 };
@@ -69,8 +65,6 @@ export function createAuthAdminRoutes(opts: AdminRouteOptions = {}): RouteRecord
     { path: `${base}/users`, component: UsersPage, props: { basePath: base }, meta: { title: "用户" } },
     { path: `${base}/users/new`, component: CreateUserPage, props: { basePath: base }, meta: { title: "创建用户" } },
     { path: `${base}/users/:id`, component: UserDetailPage, props: { basePath: base }, meta: { title: "用户详情" } },
-    // 会话列表独立成页：数量可能很多，详情页不必为它承担每次加载成本。
-    { path: `${base}/users/:id/sessions`, component: UserSessionsPage, props: { basePath: base }, meta: { title: "会话记录" } },
     { path: `${base}/roles`, component: RolesPage, meta: { title: "角色" } },
   ];
   if (variant === "full") {
@@ -91,7 +85,6 @@ export function createAuthAccountRoutes(opts: { basePath?: string } = {}): Route
     { path: `${base}/security`, component: SecurityPage, meta: { title: "安全" } },
     // 旧的「登录方式」已并入安全页，保留重定向以兼容已有链接
     { path: `${base}/identities`, redirect: `${base}/security` },
-    { path: `${base}/sessions`, component: SessionsPage, meta: { title: "会话" } },
     { path: `${base}/agreements`, component: AgreementsPage, meta: { title: "服务协议" } },
   ];
 }
