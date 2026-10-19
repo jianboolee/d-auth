@@ -92,7 +92,7 @@ const auth = createDAuthClient({
 }
 ```
 
-其它 Go 服务用 **RS256 + JWKS**（d-auth 默认，`DAUTH_JWT_ALG=RS256`）：私钥不出 d-auth，公钥发布在 `GET /v1/.well-known/jwks.json`，验证方用 [`packages/gosdk`](packages/gosdk/README.md) 的 `Verifier` 本地验签并校验 `iss` / `sub` / `roles` / `sid`，无需共享任何密钥。查改用户用 `Authorization: Bearer sk-...`。
+其它 Go 服务用 **RS256 + JWKS**（d-auth 默认，`DAUTH_JWT_ALG=RS256`）：私钥不出 d-auth，公钥发布在 `GET /v1/.well-known/jwks.json`，验证方用 [`packages/gosdk`](packages/gosdk/README.md) 的 `Verifier` 本地验签并校验 `iss` / `sub` / `roles`，无需共享任何密钥。浏览器场景可用 `Verifier.VerifyRequest` 直接读 `dauth_access` cookie。查改用户用 `Authorization: Bearer sk-...`。
 
 **Go 子系统（如 d-camp）用 [`packages/gosdk`](packages/gosdk/README.md) 一把 API Key 调登录/查/改**，不要复制接口，也不要把 d-auth 的前端域名塞进小程序白名单——由子系统后端代理：
 
@@ -157,5 +157,15 @@ const hit = await auth.users({ phone: "13800000000" }); // 匹配不上返回 []
 ### 缓存
 
 用户资料在 Redis 中缓存，读取接口命中缓存即可省掉数据库往返。改动资料、角色、身份、密码、头像、注销等写路径都会显式让缓存失效，`DAUTH_USER_CACHE_TTL`（默认 `60s`）只是兜底的最大陈旧窗口。配 `0` 即关闭缓存（每次回源数据库，功能不受影响）。Redis 不可用时自动降级为直查数据库，不会让接口报错。
+
+### 会话状态（Redis）
+
+登录会话（`auth_sessions` 表已废弃）改由 Redis 承载：refresh token 白名单
+（`dauth:rt:*`）。因此 Redis **必须开启持久化**（各 compose 已加 AOF + 卷），
+否则重启会丢掉全部会话、把所有人强制登出。与用户缓存不同，会话存储是
+**fail-closed**：Redis 不可用时登录/续期会失败，而不是放行。
+
+读路径不碰 Redis——access token 是自证 JWT，验签即认人（业务侧同理）。因此
+停用/改密/登出后旧 access token 最多再活一个 `DAUTH_JWT_ACCESS_TTL`（默认 `1h`）。
 
 嵌入用户管理页（可选）：[`@donktech/d-auth-admin`](packages/admin/README.md) 的 `createAuthAccountRoutes` / `createAuthAdminRoutes`。

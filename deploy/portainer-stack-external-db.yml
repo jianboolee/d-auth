@@ -18,7 +18,8 @@ services:
       DAUTH_JWT_PRIVATE_KEY_PATH: /app/data/jwt-private.pem
       DAUTH_COOKIE_DOMAIN: ${DAUTH_COOKIE_DOMAIN:-}
       DAUTH_COOKIE_SECURE: ${DAUTH_COOKIE_SECURE:-true}
-      DAUTH_COOKIE_NAME: ${DAUTH_COOKIE_NAME:-__Secure-dauth_session}
+      DAUTH_COOKIE_REFRESH_NAME: ${DAUTH_COOKIE_REFRESH_NAME:-__Secure-dauth_refresh}
+      DAUTH_COOKIE_NAME: ${DAUTH_COOKIE_NAME:-__Secure-dauth_access}
       DAUTH_ALLOWED_ORIGINS: ${DAUTH_ALLOWED_ORIGINS:-}
       DATABASE_URL: ${DATABASE_URL:?请设置 DATABASE_URL}
       REDIS_ADDR: ${REDIS_ADDR:?请设置 REDIS_ADDR，例如 redis:6379 或 host.docker.internal:6379}

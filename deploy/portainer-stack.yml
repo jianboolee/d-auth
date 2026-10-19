@@ -30,7 +30,8 @@ services:
       DAUTH_JWT_PRIVATE_KEY_PATH: /app/data/jwt-private.pem
       DAUTH_COOKIE_DOMAIN: ${DAUTH_COOKIE_DOMAIN:-}
       DAUTH_COOKIE_SECURE: ${DAUTH_COOKIE_SECURE:-true}
-      DAUTH_COOKIE_NAME: ${DAUTH_COOKIE_NAME:-__Secure-dauth_session}
+      DAUTH_COOKIE_REFRESH_NAME: ${DAUTH_COOKIE_REFRESH_NAME:-__Secure-dauth_refresh}
+      DAUTH_COOKIE_NAME: ${DAUTH_COOKIE_NAME:-__Secure-dauth_access}
       DAUTH_ALLOWED_ORIGINS: ${DAUTH_ALLOWED_ORIGINS:-}
       DATABASE_URL: postgresql://${POSTGRES_USER:-dauth}:${POSTGRES_PASSWORD:?请在 Portainer 环境变量面板设置 POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dauth}?sslmode=disable
       REDIS_ADDR: redis:6379
@@ -83,6 +84,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # 会话状态（refresh token 白名单）存在 Redis：必须开 AOF + 挂卷，
+    # 否则每次重启/升级都会丢掉全部会话、把所有人强制登出。
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -92,3 +98,4 @@ services:
 volumes:
   postgres_data:
   app_data:
+  redis_data:

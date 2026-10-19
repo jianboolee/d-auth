@@ -12,20 +12,23 @@
 ## 拓扑：两套凭证，三个接口面
 
 ```
-业务前端 ──登录/刷新──► d-auth（签发 access JWT + refresh token / session cookie）
+业务前端 ──登录/刷新──► d-auth（签发 access JWT + refresh token；access 存 dauth_access cookie）
    │                      ▲
    │ 业务请求(带 JWT 或 cookie) │ 服务端查询/代客操作(带 sk- API Key)
    ▼                      │
 业务 Go 后端 ──────────────┘
-  · 本地验签 JWT 拿到 sub / roles / sid
+  · 本地验签 JWT 拿到 sub / roles
   · 需要资料时调 /v1/internal/users/:id
 ```
 
 | 身份 | 凭证 | 可调接口 | 持有方 |
 | --- | --- | --- | --- |
-| 用户会话 | access JWT（+ refresh token）或 session cookie | `/v1/me/*`、`/v1/auth/session`、`/v1/auth/refresh`、`/v1/auth/logout` | 浏览器 / App |
+| 用户会话 | access JWT（`dauth_access` cookie 或 `Authorization: Bearer`） | `/v1/me/*`、`/v1/auth/session` | 浏览器 / App |
+| 会话续期 | refresh token（`dauth_refresh` cookie，Path 限死 `/v1/auth`） | `/v1/auth/refresh`、`/v1/auth/logout` | 浏览器 / App |
 | 服务密钥 | `sk-...`（scope `users:read` / `users:write`） | `/v1/users/*`、`/v1/internal/*`、`/v1/admin/*` | 业务 Go 后端 |
 | 管理员会话 | 用户登录态 + `admin` / `superadmin` 角色 | `/v1/admin/*` | 控制台 |
+
+会话状态（refresh 白名单）存在 d-auth 的 Redis 里，**业务侧看不到、也不需要它**。
 
 两条硬边界：
 
@@ -87,12 +90,17 @@ DAUTH_API_KEY=sk-...                    # 控制台「API Keys」创建；只有
 }
 ```
 
-默认 access 15 分钟、refresh 30 天。`data.user` 是**本人视角**（手机号/邮箱已脱敏）。
+默认 access 1 小时、refresh 30 天。`data.user` 是**本人视角**（手机号/邮箱已脱敏）。
 
 **两种前端模式**：
 
-- **Web（cookie）**：跨子域共享登录态，JS 拿不到 token，浏览器自动带 `dauth_session` cookie。业务后端从 Cookie 里取 `sid` 或透传 cookie。
+- **Web（cookie）**：跨子域共享登录态，JS 拿不到 token。access token 在 `dauth_access` cookie 里
+  （`Path=/`，业务后端可见），refresh token 在 `dauth_refresh` cookie 里（`Path=/v1/auth`，只有
+  d-auth 能收到）。业务后端读 `dauth_access` 验签即可，不必取 `sid`。
 - **App / 第三方（token）**：前端持有 `access_token` + `refresh_token`，业务请求头带 `Authorization: Bearer <access_token>`。
+
+access token 过期（默认 1h）后，前端向 d-auth 发一次 `POST /v1/auth/refresh`
+（cookie 模式 `credentials: "include"`；token 模式带 `refresh_token`）拿到新 token 再重试。
 
 ## 三、Go 后端验签中间件（RS256 + JWKS）
 
@@ -120,18 +128,15 @@ var verifier = dauth.NewVerifier(dauth.VerifierOptions{
 	Issuer:  os.Getenv("DAUTH_JWT_ISSUER"),
 })
 
-// Middleware 校验 Authorization: Bearer <access_token>，把 claims 注入 context。
+// Middleware 校验 access token：优先 Authorization: Bearer，其次读 dauth_access
+// cookie（浏览器场景）。把 claims 注入 context。
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw := r.Header.Get("Authorization")
-		if raw == "" || !strings.HasPrefix(raw, "Bearer ") {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		claims, err := verifier.VerifyToken(r.Context(), raw)
+		// 第二个参数传 "" 即用默认 cookie 名 dauth_access。
+		claims, err := verifier.VerifyRequest(r.Context(), r, "")
 		if err != nil {
 			// ErrKeySourceUnavailable = 暂时取不到公钥（d-auth 故障），
-			// 返回 503 而不是把用户踢下线；其余（过期/伪造/降级）返回 401。
+			// 返回 503 而不是把用户踢下线；其余（未登录/过期/伪造/降级）返回 401。
 			if errors.Is(err, dauth.ErrKeySourceUnavailable) {
 				http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
 			} else {
@@ -162,7 +167,7 @@ func IsAdmin(c *dauth.TokenClaims) bool {
 
 `VerifyToken` 内部强制 `alg=RS256`（拒绝 none/HS256 降级伪造）、按 `kid` 匹配公钥、校验
 `exp`/`iat`（30 秒容差）与 `iss`。返回的 `dauth.TokenClaims` 含 `Subject`（22 位用户 ID，
-不是 uuid）、`Roles`、`SessionID`、`ClientID`、`JTI`、`IssuedAt`、`ExpiresAt`。
+不是 uuid）、`Roles`、`ClientID`、`JTI`、`IssuedAt`、`ExpiresAt`。
 
 > 旧 HS256 方案的共享密钥中间件已废弃：d-auth 不再签发 HS256 token，JWKS 里也不会有对称密钥。
 
@@ -170,8 +175,10 @@ func IsAdmin(c *dauth.TokenClaims) bool {
 
 本地验签只证明 token 未被篡改，**不代表账号当前仍可用**：
 
-- JWT 有效期内，业务后端看不到「账号被停用」「用户已登出」「改密码踢会话」。
-- d-auth 自己的 Bearer 校验路径会实时查用户 `status`，但外部服务验签做不到。
+- d-auth 的读路径现在也是纯验签（不查库），因此**它和业务侧一样**看不到「账号被停用」
+  「用户已登出」「改密码」的即时效果。
+- 唯一的即时吊销点是 refresh：登出/改密/停用会删掉 Redis 里的 refresh 白名单项，之后无法续期。
+- 已签发的 access token 在 TTL（默认 1h）内仍然有效。
 
 需要「停用/登出即刻生效」的场景（支付、敏感操作），要么把 access TTL 调短，要么为此类操作实时查一次
 `GET /v1/internal/users/:id` 确认 `status == "active"`。详见文末[注意事项](#九注意事项)。
@@ -180,7 +187,7 @@ func IsAdmin(c *dauth.TokenClaims) bool {
 
 ### 4.1 只要身份：读 JWT，不请求 d-auth
 
-`sub`（用户 ID）、`roles`（是否管理员）、`sid`（会话）都在 token 里。业务库外键存 `sub` 即可，**不要另存用户表**。
+`sub`（用户 ID）、`roles`（是否管理员）都在 token 里。业务库外键存 `sub` 即可，**不要另存用户表**。
 
 ```go
 claims, _ := auth.FromContext(r.Context())
@@ -333,7 +340,7 @@ type User struct {
 | 操作 | 接口 | 说明 |
 | --- | --- | --- |
 | 改昵称/简介/性别 | `PATCH /v1/me` | body 只认 `nickname` / `bio` / `gender` |
-| 改密码 | `POST /v1/me/password` | 成功后**踢掉除当前会话外的其它会话** |
+| 改密码 | `POST /v1/me/password` | 成功后**踢掉其它设备的续期能力**（保留当前设备） |
 | 换绑手机号 | `POST /v1/me/phone/change` | 需新手机号验证码（`bind_phone`） |
 | 绑定邮箱 | `POST /v1/me/email/bind` | 需邮箱验证码 |
 | 换头像 | `POST /v1/me/avatar/sign` → `PUT` → `confirm` | 三步，见 SDK |
@@ -405,8 +412,13 @@ d-auth 用这条 client 的小程序凭证换 openid；会话归属到该 client
 
 ## 七、刷新与登出
 
-- **刷新**：`POST /v1/auth/refresh`，token 模式带 `refresh_token` 换取新 access（refresh 会轮换）。Cookie 模式 d-auth 自动滑动续期，前端无需处理。
-- **登出**：`POST /v1/auth/logout` 吊销会话；cookie 模式幂等。
+- **刷新**：`POST /v1/auth/refresh`。token 模式带 `refresh_token`；cookie 模式由浏览器自动带上
+  `dauth_refresh` cookie（Path=`/v1/auth`，业务系统收不到）。refresh 每次都会**轮换**，
+  新旧 token 单次有效。
+- **前端续期姿势**：业务请求 401 时，向 d-auth 发一次 refresh（cookie 模式 `credentials: "include"`），
+  拿到新 `dauth_access` cookie 后重试原请求即可，无需整页跳转。
+- **登出**：`POST /v1/auth/logout` 删掉 refresh 白名单项并清 cookie，幂等。已签发的 access token
+  在 TTL 内仍可用（见注意事项）。
 
 ## 八、错误处理
 
@@ -434,7 +446,10 @@ d-auth 用这条 client 的小程序凭证换 openid；会话归属到该 client
 
 ## 九、注意事项
 
-1. **吊销不即时生效（token 模式）**：d-auth 的 Bearer 校验路径只查用户 `status`，**不查 session 是否 revoked**。登出、改密码后，已签发的 access token 在 15 分钟内仍可用。外部服务本地验签同样看不到。要即时失效只能缩短 access TTL，或对敏感操作实时查 `/v1/internal/users/:id` 确认 `status`。
+1. **吊销不即时生效**：读路径（业务本地验签、以及 d-auth 自己）都是「验签即信」，**不查任何存储**。
+   登出、改密码、停用后，已签发的 access token 在一个 TTL（默认 1h）内仍可用。唯一的即时动作是
+   「停止续期」——refresh 白名单项被删后无法再换新 access。要缩窗口就把 `DAUTH_JWT_ACCESS_TTL` 调小，
+   或对敏感操作实时查 `/v1/internal/users/:id` 确认 `status`。
 2. **别用 API Key 调 `/v1/me` 或 `/v1/auth/session`**：前者 401，后者对 API Key 返回空对象。`createDAuthServiceClient` 生成的 client 仍暴露这两个方法，容易误用。
 3. **默认 API Key 权限过大**：新建即含 `users:write`。只查询的业务方要把 scope 收窄到 `users:read`。
 4. **脱敏边界**：`/v1/users` 可安全透给前端，`/v1/internal` 是明文，别原样返回前端。
