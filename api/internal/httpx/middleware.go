@@ -13,7 +13,6 @@ import (
 	"github.com/jianboolee/d-auth/internal/config"
 	"github.com/jianboolee/d-auth/internal/contextx"
 	"github.com/jianboolee/d-auth/internal/idgen"
-	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/auth"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/response"
@@ -75,11 +74,20 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-// resolveActor 解析请求的登录态，成功返回 actor 与当前会话（会话在 Bearer
-// 路径下可能拿不到，此时为 nil）。它不写任何响应，失败时返回带码的错误，
+// resolveActor 解析请求的登录态。它不写任何响应，失败时返回带码的错误，
 // 由调用方决定如何响应：Authenticate 交给 WriteError 返回原状态码，
 // Session 探针则一律当作未登录返回空对象。
-func resolveActor(c *gin.Context, cfg *config.Config, authSvc *auth.Service) (*contextx.Actor, *models.Session, error) {
+//
+// 用户态的两条路径都是「验签即信」，不查库、不查 Redis：
+//
+//   - Bearer <access JWT>：子系统 / App 带上来的 access token。
+//   - cookie <access JWT>（CookieName，默认 dauth_access）：浏览器。
+//
+// 角色从 JWT claims 直接读。这意味着停用 / 改密后，已签发的 access token 在
+// TTL 内仍会通过校验——这是纯验签方案换取「读路径零存储访问」的既定窗口，
+// 续期侧（refresh）才是真正的吊销点（见 sessionstore）。
+// API Key 分支仍查库：它是服务端凭据、不是自证 JWT，且不参与浏览器会话。
+func resolveActor(c *gin.Context, cfg *config.Config, authSvc *auth.Service) (*contextx.Actor, error) {
 	errUnauthed := apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "登录已失效")
 	errNotLoggedIn := apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "未登录")
 
@@ -91,93 +99,55 @@ func resolveActor(c *gin.Context, cfg *config.Config, authSvc *auth.Service) (*c
 			key, err := authSvc.Store().FindAPIKeyByPrefix(prefix)
 			// 用 hmac.Equal 常量时间比较哈希，避免按字节短路带来的时序差异。
 			if err != nil || !hmac.Equal([]byte(key.KeyHash), []byte(store.HashToken(raw))) {
-				return nil, nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "无效的 API Key")
+				return nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "无效的 API Key")
 			}
 			if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
-				return nil, nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "API Key 已过期")
+				return nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "API Key 已过期")
 			}
 			now := time.Now()
 			_ = authSvc.Store().DB.Model(key).Update("last_used_at", now).Error
 			return &contextx.Actor{
 				Kind: contextx.ActorAPIKey, APIKeyID: key.ID, Scopes: key.Scopes,
-			}, nil, nil
+			}, nil
 		}
-		claims, err := authSvc.ParseAccess(raw)
-		if err != nil {
-			return nil, nil, errUnauthed
-		}
-		uid, err := idgen.ParseUserID(claims.Subject)
-		if err != nil {
-			return nil, nil, errUnauthed
-		}
-		sid, _ := uuid.Parse(claims.SessionID)
-		cid, _ := uuid.Parse(claims.ClientID)
-		user, err := authSvc.Store().UserByID(uid)
-		if err != nil || user.Status != "active" {
-			return nil, nil, errUnauthed
-		}
-		roles := claims.Roles
-		if len(roles) == 0 {
-			roles, _ = authSvc.Store().RoleCodes(uid)
-		}
-		var sess *models.Session
-		if sid != uuid.Nil {
-			if s, err := authSvc.SessionByID(sid); err == nil {
-				sess = s
-			}
-		}
-		return &contextx.Actor{
-			Kind: contextx.ActorUser, UserID: uid, SessionID: sid, ClientID: cid, Roles: roles,
-		}, sess, nil
+		return actorFromJWT(authSvc, raw, errUnauthed)
 	}
 
-	sid, _ := c.Cookie(cfg.CookieName)
-	if sid == "" {
-		return nil, nil, errNotLoggedIn
-	}
-	id, err := uuid.Parse(sid)
-	if err != nil {
-		return nil, nil, errNotLoggedIn
-	}
+	// CSRF：cookie 凭据下的状态变更请求必须带 X-DAuth-Client。cookie 会自动
+	// 随跨站请求携带，SameSite=Lax 只挡住跨站 POST，加一道自定义头校验作为兜底。
 	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead && c.Request.Method != http.MethodOptions {
 		if c.GetHeader("X-DAuth-Client") == "" {
-			return nil, nil, apperr.New(apperr.ErrForbidden, "CSRF", "缺少 X-DAuth-Client")
+			return nil, apperr.New(apperr.ErrForbidden, "CSRF", "缺少 X-DAuth-Client")
 		}
 	}
-	sess, err := authSvc.SessionByID(id)
+
+	raw, err := c.Cookie(cfg.CookieName)
+	if err != nil || raw == "" {
+		return nil, errNotLoggedIn
+	}
+	return actorFromJWT(authSvc, raw, errUnauthed)
+}
+
+// actorFromJWT 验签一枚 access token 并组装 Actor。角色取自 claims，
+// 不查库补齐——claims 缺失角色时视为该用户没有角色（而非回退查库）。
+func actorFromJWT(authSvc *auth.Service, raw string, errUnauthed error) (*contextx.Actor, error) {
+	claims, err := authSvc.ParseAccess(raw)
 	if err != nil {
-		return nil, nil, errUnauthed
+		return nil, errUnauthed
 	}
-	user, err := authSvc.Store().UserByID(sess.UserID)
-	if err != nil || user.Status != "active" {
-		return nil, nil, errUnauthed
+	uid, err := idgen.ParseUserID(claims.Subject)
+	if err != nil {
+		return nil, errUnauthed
 	}
-	// 滑动过期：持续使用就顺延 expires_at。放在这里而不是探针里，因为
-	// resolveActor 是所有 cookie 认证请求（含 Authenticate / OptionalAuth）的
-	// 唯一入口，这样任意接口的活跃都能续期，而不只是 /v1/auth/session。
-	// 续期成功时同步重发 Cookie，否则浏览器端仍会在旧的 MaxAge 到期。
-	//
-	// 位置在账号状态校验之后：只给「确实还能用」的会话续期，
-	// 不给已停用/已注销账号的残留会话顺延寿命。
-	if renewed, rerr := authSvc.SlidingRenew(sess.ID); rerr != nil {
-		// 续期失败不应影响本次请求：会话此刻仍然有效。
-		slog.Warn("session sliding renew failed", "err", rerr, "session_id", sess.ID)
-	} else if renewed {
-		setSessionCookieFor(c, cfg, sess.ID)
-	}
-	roles, _ := authSvc.Store().RoleCodes(user.ID)
-	cid := uuid.Nil
-	if sess.ClientID != nil {
-		cid = *sess.ClientID
-	}
+	cid, _ := uuid.Parse(claims.ClientID)
 	return &contextx.Actor{
-		Kind: contextx.ActorUser, UserID: user.ID, SessionID: sess.ID, ClientID: cid, Roles: roles,
-	}, sess, nil
+		Kind: contextx.ActorUser, UserID: uid, ClientID: cid, Roles: claims.Roles,
+	}, nil
 }
 
 func Authenticate(cfg *config.Config, authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		actor, _, err := resolveActor(c, cfg, authSvc)
+		actor, err := resolveActor(c, cfg, authSvc)
 		if err != nil {
 			WriteError(c, err)
 			return
@@ -193,7 +163,7 @@ func Authenticate(cfg *config.Config, authSvc *auth.Service) gin.HandlerFunc {
 // 其余错误一律放行。
 func OptionalAuth(cfg *config.Config, authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		actor, _, err := resolveActor(c, cfg, authSvc)
+		actor, err := resolveActor(c, cfg, authSvc)
 		if err != nil {
 			if code, _, _ := apperr.CodeOf(err); code == "CSRF" {
 				WriteError(c, err)

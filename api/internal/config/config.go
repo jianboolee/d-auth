@@ -21,10 +21,17 @@ type Config struct {
 	RedisPassword string
 	RedisDB       int
 
-	CookieDomain   string
-	CookieSecure   bool
-	CookieName     string
-	AllowedOrigins []string
+	CookieDomain string
+	CookieSecure bool
+	// CookieName 是承载 access token（RS256 JWT）的 cookie 名。Path=/ ，
+	// 跨子域可见，业务后端据此验签判断登录态。
+	CookieName string
+	// CookieRefreshName 是承载 refresh token 的 cookie 名。它的 Path 被限制在
+	// CookieRefreshPath（默认 /v1/auth），因此只有 d-auth 自己的续期接口能收到，
+	// 业务系统任何路径都不会被携带——refresh 永远不外流。
+	CookieRefreshName string
+	CookieRefreshPath string
+	AllowedOrigins    []string
 	// ReturnOrigins 是登录回跳（/login?return_to=）允许的 origin 白名单，环境级、
 	// 不区分 client（硬化到 per-client 的路径见 docs/sso-return-to.md）。条目应是
 	// scheme://host[:port] 形式的 origin，匹配时同样只比 origin，URL 其余部分原样回跳。
@@ -35,13 +42,10 @@ type Config struct {
 	JWTSecret         string
 	JWTPrivateKeyPath string
 	JWTAccessTTL      time.Duration
-	// JWTRefreshTTL 是会话寿命：cookie 模式下表示「最后活跃后多久过期」，
-	// token 模式下每次 refresh 都会以此重置（见 SessionRenewInterval）。
+	// JWTRefreshTTL 是 refresh token（= 会话）寿命，同时是 Redis 白名单键的 TTL。
+	// refresh 每次轮换都会重置这个 TTL，所以「持续活跃就不掉线」由轮换实现，
+	// 不再需要单独的滑动续期间隔。
 	JWTRefreshTTL time.Duration
-	// SessionRenewInterval 是 cookie 会话滑动续期的节流间隔：活跃请求最多每
-	// 这么久延长一次 expires_at，避免每个请求都写库。必须大于 0 且远小于
-	// JWTRefreshTTL；非法时会关闭滑动续期（退回固定过期，而不是每请求写库）。
-	SessionRenewInterval time.Duration
 
 	// UserCacheTTL 是用户资料在 Redis 中的缓存有效期。读取用户资料的接口
 	// （公开资料 / internal）命中缓存可省掉数据库往返，写路径会显式失效，
@@ -155,16 +159,17 @@ func Load() *Config {
 		RedisDB:                  envInt("DAUTH_REDIS_DB", envInt("REDIS_DB", 0)),
 		CookieDomain:             env("DAUTH_COOKIE_DOMAIN", ""),
 		CookieSecure:             envBool("DAUTH_COOKIE_SECURE", false),
-		CookieName:               env("DAUTH_COOKIE_NAME", "dauth_session"),
+		CookieName:               env("DAUTH_COOKIE_NAME", "dauth_access"),
+		CookieRefreshName:        env("DAUTH_COOKIE_REFRESH_NAME", "dauth_refresh"),
+		CookieRefreshPath:        env("DAUTH_COOKIE_REFRESH_PATH", "/v1/auth"),
 		AllowedOrigins:           origins,
 		ReturnOrigins:            returnOrigins,
 		JWTIssuer:                firstNonEmpty(env("DAUTH_JWT_ISSUER", ""), strings.TrimRight(publicURL, "/")),
 		JWTAlg:                   env("DAUTH_JWT_ALG", env("JWT_ALG", "")),
 		JWTSecret:                firstNonEmpty(env("DAUTH_JWT_SECRET", ""), env("JWT_SECRET", "")),
 		JWTPrivateKeyPath:        env("DAUTH_JWT_PRIVATE_KEY_PATH", ""),
-		JWTAccessTTL:             envDuration("DAUTH_JWT_ACCESS_TTL", 15*time.Minute),
+		JWTAccessTTL:             envDuration("DAUTH_JWT_ACCESS_TTL", time.Hour),
 		JWTRefreshTTL:            envDuration("DAUTH_JWT_REFRESH_TTL", 30*24*time.Hour),
-		SessionRenewInterval:     envDuration("DAUTH_SESSION_RENEW_INTERVAL", 24*time.Hour),
 		UserCacheTTL:             envDuration("DAUTH_USER_CACHE_TTL", 60*time.Second),
 		InitAdminPhone:           env("DAUTH_INIT_ADMIN_PHONE", ""),
 		InitAdminEmail:           strings.ToLower(strings.TrimSpace(env("DAUTH_INIT_ADMIN_EMAIL", ""))),

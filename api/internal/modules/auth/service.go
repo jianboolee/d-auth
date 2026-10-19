@@ -24,6 +24,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/codes"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
+	"github.com/jianboolee/d-auth/internal/modules/sessionstore"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/modules/usercache"
 	"github.com/jianboolee/d-auth/internal/normalize"
@@ -32,21 +33,22 @@ import (
 )
 
 type Service struct {
-	cfg    *config.Config
-	store  *store.Store
-	codes  *codes.Service
-	sms    sms.Sender
-	mail   mailer.Sender
-	jwt    *tokens.Manager
-	wechat wechat.Client
-	rdb    *redis.Client
+	cfg      *config.Config
+	store    *store.Store
+	codes    *codes.Service
+	sms      sms.Sender
+	mail     mailer.Sender
+	jwt      *tokens.Manager
+	wechat   wechat.Client
+	rdb      *redis.Client
+	sessions *sessionstore.Store
 	// cache 缓存组装好的用户资料。登录会更新 last_login_at、提升超管会改角色，
 	// 两处都要让缓存失效，否则 internal 接口会返回陈旧的「最近登录时间」。
 	cache *usercache.Cache
 }
 
-func New(cfg *config.Config, st *store.Store, c *codes.Service, smsSender sms.Sender, mailSender mailer.Sender, jwt *tokens.Manager, wx wechat.Client, rdb *redis.Client, cache *usercache.Cache) *Service {
-	return &Service{cfg: cfg, store: st, codes: c, sms: smsSender, mail: mailSender, jwt: jwt, wechat: wx, rdb: rdb, cache: cache}
+func New(cfg *config.Config, st *store.Store, c *codes.Service, smsSender sms.Sender, mailSender mailer.Sender, jwt *tokens.Manager, wx wechat.Client, rdb *redis.Client, sessions *sessionstore.Store, cache *usercache.Cache) *Service {
+	return &Service{cfg: cfg, store: st, codes: c, sms: smsSender, mail: mailSender, jwt: jwt, wechat: wx, rdb: rdb, sessions: sessions, cache: cache}
 }
 
 type LoginMeta struct {
@@ -132,19 +134,19 @@ func (s *Service) SendSMSForUser(ctx context.Context, userID, scene, ip string) 
 	return s.SendSMS(ctx, phone, scene, ip)
 }
 
-func (s *Service) SMSLogin(ctx context.Context, phoneRaw, code string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+func (s *Service) SMSLogin(ctx context.Context, phoneRaw, code string, meta LoginMeta) (*dto.TokenResult, error) {
 	phone, ok := normalize.Phone(phoneRaw)
 	if !ok {
-		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_PHONE", "手机号不正确")
+		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_PHONE", "手机号不正确")
 	}
 	if err := s.codes.Verify(ctx, "login", phone, code); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	user, err := s.findOrCreateByIdentity(models.IdentityPhone, phone, normalize.MaskPhoneDisplay(phone))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return s.issueSession(user, meta)
+	return s.issueToken(user, meta)
 }
 
 func (s *Service) SendEmail(ctx context.Context, emailRaw, scene, ip string) (string, error) {
@@ -169,25 +171,25 @@ func (s *Service) SendEmail(ctx context.Context, emailRaw, scene, ip string) (st
 	return code, nil
 }
 
-func (s *Service) EmailRegister(ctx context.Context, emailRaw, code, pass, nickname string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+func (s *Service) EmailRegister(ctx context.Context, emailRaw, code, pass, nickname string, meta LoginMeta) (*dto.TokenResult, error) {
 	email, ok := normalize.Email(emailRaw)
 	if !ok {
-		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
+		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
 	}
 	if !password.ValidPlain(pass) {
-		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "WEAK_PASSWORD", "密码至少 8 位")
+		return nil, apperr.New(apperr.ErrInvalidArgument, "WEAK_PASSWORD", "密码至少 8 位")
 	}
 	if err := s.codes.Verify(ctx, "register", email, code); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if _, err := s.store.FindIdentity(models.IdentityEmail, email); err == nil {
-		return nil, nil, apperr.New(apperr.ErrEmailTaken, "EMAIL_TAKEN", "邮箱已被注册")
+		return nil, apperr.New(apperr.ErrEmailTaken, "EMAIL_TAKEN", "邮箱已被注册")
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil, err
+		return nil, err
 	}
 	hash, err := password.Hash(pass)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if nickname == "" {
 		nickname = defaultNickname("用户", email)
@@ -204,46 +206,46 @@ func (s *Service) EmailRegister(ctx context.Context, emailRaw, code, pass, nickn
 		})
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	s.maybePromoteAdmin(&user, "", email)
-	return s.issueSession(&user, meta)
+	return s.issueToken(&user, meta)
 }
 
 // PasswordLogin 用手机号或邮箱 + 密码登录。密码属于账号本身，因此绑定了手机号的
 // 账号可以用任一已绑定标识登录。仅短信登录创建的账号没有设置密码，会返回凭据错误。
-func (s *Service) PasswordLogin(_ context.Context, identifierRaw, pass string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+func (s *Service) PasswordLogin(_ context.Context, identifierRaw, pass string, meta LoginMeta) (*dto.TokenResult, error) {
 	typ, identifier, ok := normalize.Identifier(identifierRaw)
 	if !ok {
-		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_IDENTIFIER", "请输入正确的手机号或邮箱")
+		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_IDENTIFIER", "请输入正确的手机号或邮箱")
 	}
 	return s.passwordLoginByIdentity(typ, identifier, pass, meta)
 }
 
-func (s *Service) EmailLogin(_ context.Context, emailRaw, pass string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+func (s *Service) EmailLogin(_ context.Context, emailRaw, pass string, meta LoginMeta) (*dto.TokenResult, error) {
 	email, ok := normalize.Email(emailRaw)
 	if !ok {
-		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
+		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_EMAIL", "邮箱不正确")
 	}
 	return s.passwordLoginByIdentity(models.IdentityEmail, email, pass, meta)
 }
 
 // passwordLoginByIdentity 是密码登录的共用实现：按标识找到账号后校验密码。
 // 找不到标识与密码错误返回同一种错误，避免暴露某个手机号/邮箱是否已注册。
-func (s *Service) passwordLoginByIdentity(typ, identifier, pass string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+func (s *Service) passwordLoginByIdentity(typ, identifier, pass string, meta LoginMeta) (*dto.TokenResult, error) {
 	invalid := apperr.New(apperr.ErrUnauthorized, "INVALID_CREDENTIALS", "账号或密码不正确")
 	ident, err := s.store.FindIdentity(typ, identifier)
 	if err != nil {
-		return nil, nil, invalid
+		return nil, invalid
 	}
 	user, err := s.store.UserByID(ident.UserID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if user.PasswordHash == nil || !password.Verify(pass, *user.PasswordHash) {
-		return nil, nil, invalid
+		return nil, invalid
 	}
-	return s.issueSession(user, meta)
+	return s.issueToken(user, meta)
 }
 
 func (s *Service) ForgotPassword(ctx context.Context, emailRaw, ip string) error {
@@ -282,115 +284,51 @@ func (s *Service) ResetPassword(ctx context.Context, emailRaw, code, pass string
 	}).Error; err != nil {
 		return err
 	}
-	return s.revokeUserSessions(ident.UserID, uuid.Nil)
+	return s.revokeUserSessions(ident.UserID, "")
 }
 
-func (s *Service) Refresh(refreshToken string, sessionID uuid.UUID, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
-	var sess models.Session
-	q := s.store.DB.Where("revoked_at IS NULL AND expires_at > ?", time.Now())
-	if refreshToken != "" {
-		q = q.Where("refresh_token_hash = ?", store.HashToken(refreshToken))
-	} else if sessionID != uuid.Nil {
-		q = q.Where("id = ?", sessionID)
-	} else {
-		return nil, nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "未登录")
+// Refresh 用一枚 refresh token 换新的 access token，并轮换 refresh。
+//
+// 会话是否可续期完全由 Redis 白名单裁决（fail-closed）：命中才发新 token，
+// 未命中（不存在/已过期/已吊销）统一返回「登录已失效」。轮换是原子的，
+// 并发用同一枚旧 refresh 时只有一个成功。
+func (s *Service) Refresh(refreshToken string, meta LoginMeta) (*dto.TokenResult, error) {
+	if refreshToken == "" {
+		return nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "未登录")
 	}
-	if err := q.First(&sess).Error; err != nil {
-		return nil, nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "登录已失效")
-	}
-	user, err := s.store.UserByID(sess.UserID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if user.Status != models.StatusActive {
-		return nil, nil, apperr.New(apperr.ErrDisabled, "DISABLED", "账号已停用")
-	}
+	// 先轮换（旧键删、新键写），拿到旧记录里的归属信息。
+	// 轮换失败即视为无效 refresh，不区分原因。
 	newRaw, err := secret.RandomToken(32)
-	if err != nil {
-		return nil, nil, err
-	}
-	roles, _ := s.store.RoleCodes(user.ID)
-	cid := uuid.Nil
-	if sess.ClientID != nil {
-		cid = *sess.ClientID
-	}
-	access, jti, err := s.jwt.Sign(user.ID, sess.ID, cid, roles)
-	if err != nil {
-		return nil, nil, err
-	}
-	now := time.Now()
-	if err := s.store.DB.Model(&sess).Updates(map[string]any{
-		"refresh_token_hash": store.HashToken(newRaw),
-		"access_jti":         jti,
-		"updated_at":         now,
-		"expires_at":         now.Add(s.cfg.JWTRefreshTTL),
-		"ip":                 meta.IP,
-	}).Error; err != nil {
-		return nil, nil, err
-	}
-	sess.RefreshTokenHash = store.HashToken(newRaw)
-	return s.pack(user, roles, access, newRaw), &sess, nil
-}
-
-// RevokeSession 吊销一次登录会话。会话有两条定位路径：session ID（cookie 凭据）
-// 与 refresh token（token 凭据，即使 access token 已过期也能定位）。
-// 两者都没有表示调用方本来就没登录，按幂等处理直接返回 nil；
-// 已吊销的会话重复调用同样返回 nil。
-func (s *Service) RevokeSession(sessionID uuid.UUID, refreshToken string) error {
-	q := s.store.DB.Model(&models.Session{}).Where("revoked_at IS NULL")
-	switch {
-	case refreshToken != "":
-		q = q.Where("refresh_token_hash = ?", store.HashToken(refreshToken))
-	case sessionID != uuid.Nil:
-		q = q.Where("id = ?", sessionID)
-	default:
-		return nil
-	}
-	now := time.Now()
-	return q.Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
-}
-
-func (s *Service) SessionByID(id uuid.UUID) (*models.Session, error) {
-	var sess models.Session
-	err := s.store.DB.Where("id = ? AND revoked_at IS NULL AND expires_at > ?", id, time.Now()).First(&sess).Error
 	if err != nil {
 		return nil, err
 	}
-	return &sess, nil
+	entry, err := s.sessions.Rotate(context.Background(), refreshToken, newRaw)
+	if err != nil {
+		return nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "登录已失效")
+	}
+	user, err := s.store.UserByID(entry.UserID)
+	if err != nil {
+		return nil, apperr.New(apperr.ErrUnauthorized, "UNAUTHORIZED", "登录已失效")
+	}
+	if user.Status != models.StatusActive {
+		return nil, apperr.New(apperr.ErrDisabled, "DISABLED", "账号已停用")
+	}
+	roles, _ := s.store.RoleCodes(user.ID)
+	cid := uuid.Nil
+	if entry.ClientID != "" {
+		cid, _ = uuid.Parse(entry.ClientID)
+	}
+	access, _, err := s.jwt.Sign(user.ID, cid, roles)
+	if err != nil {
+		return nil, err
+	}
+	return s.pack(user, roles, access, newRaw), nil
 }
 
-// SlidingRenew 把会话的过期时间顺延为「现在 + JWTRefreshTTL」，实现滑动过期：
-// 只要持续使用就不会掉线，只有连续 TTL 时间不活跃才失效。
-//
-// 不是每个请求都写库，而是用一条带条件的原子 UPDATE 做节流：仅当
-// expires_at 已经落后于 (now + TTL - interval) 时才更新，等价于「距上次延长
-// 已超过 interval」。这样活跃会话最多每 interval 写一次库，同时也避免了
-// 先读后写带来的竞态。
-//
-// 返回是否真的延长了。配置非法（interval <= 0 或 >= TTL）时不做任何事，
-// 退回固定过期 —— 否则会把每个请求都变成一次写入。
-//
-// WHERE 里带 expires_at > now 是必要的：没有它，一个已过期的会话会被下一次
-// 带该 cookie 的请求「复活」。当前调用方 SessionByID 已经先挡了一层，
-// 但把这条约束放在这里才让方法自身安全。
-func (s *Service) SlidingRenew(id uuid.UUID) (bool, error) {
-	interval := s.cfg.SessionRenewInterval
-	ttl := s.cfg.JWTRefreshTTL
-	if interval <= 0 || interval >= ttl {
-		return false, nil
-	}
-	now := time.Now()
-	res := s.store.DB.Model(&models.Session{}).
-		Where("id = ? AND revoked_at IS NULL AND expires_at > ? AND expires_at < ?",
-			id, now, now.Add(ttl-interval)).
-		Updates(map[string]any{
-			"expires_at": now.Add(ttl),
-			"updated_at": now,
-		})
-	if res.Error != nil {
-		return false, res.Error
-	}
-	return res.RowsAffected > 0, nil
+// RevokeSession 吊销一枚 refresh token（登出）。幂等：token 为空或本就不存在时
+// 直接返回 nil。登出只「停止续期」，已签发的 access token 在 TTL 内仍可用。
+func (s *Service) RevokeSession(refreshToken string) error {
+	return s.sessions.RevokeByToken(context.Background(), refreshToken)
 }
 
 func (s *Service) WeChatQRStart(ctx context.Context) (map[string]any, error) {
@@ -406,32 +344,32 @@ func (s *Service) WeChatQRStart(ctx context.Context) (map[string]any, error) {
 	}, nil
 }
 
-func (s *Service) WeChatQRStatus(ctx context.Context, ticket string) (map[string]any, *dto.TokenResult, *models.Session, error) {
+func (s *Service) WeChatQRStatus(ctx context.Context, ticket string) (map[string]any, *dto.TokenResult, error) {
 	raw, err := s.rdb.Get(ctx, "wxqr:"+ticket).Bytes()
 	if err != nil {
-		return nil, nil, nil, apperr.New(apperr.ErrNotFound, "QR_EXPIRED", "二维码已过期")
+		return nil, nil, apperr.New(apperr.ErrNotFound, "QR_EXPIRED", "二维码已过期")
 	}
 	var payload map[string]any
 	_ = json.Unmarshal(raw, &payload)
 	status, _ := payload["status"].(string)
 	if status != "confirmed" {
-		return payload, nil, nil, nil
+		return payload, nil, nil
 	}
 	userID, _ := payload["user_id"].(string)
 	uid, err := idgen.ParseUserID(userID)
 	if err != nil {
-		return payload, nil, nil, nil
+		return payload, nil, nil
 	}
 	user, err := s.store.UserByID(uid)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	tokens, sess, err := s.issueSession(user, LoginMeta{ClientKey: models.ClientKeyConsole})
+	tokens, err := s.issueToken(user, LoginMeta{ClientKey: models.ClientKeyConsole})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	_ = s.rdb.Del(ctx, "wxqr:"+ticket).Err()
-	return map[string]any{"status": "confirmed"}, tokens, sess, nil
+	return map[string]any{"status": "confirmed"}, tokens, nil
 }
 
 func (s *Service) WeChatCallback(ctx context.Context, code, ticket string, meta LoginMeta) error {
@@ -447,14 +385,14 @@ func (s *Service) WeChatCallback(ctx context.Context, code, ticket string, meta 
 	return s.rdb.Set(ctx, "wxqr:"+ticket, payload, 5*time.Minute).Err()
 }
 
-func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta LoginMeta) (*dto.TokenResult, error) {
 	cl, err := s.store.ClientByKey(clientKey)
 	if err != nil {
-		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "UNKNOWN_CLIENT", "未知应用")
+		return nil, apperr.New(apperr.ErrInvalidArgument, "UNKNOWN_CLIENT", "未知应用")
 	}
 	secretPlain, err := secret.Decrypt(s.cfg.MasterKey, cl.WechatAppSecretEnc)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if secretPlain == "" && s.cfg.IsDev() {
 		secretPlain = "mock"
@@ -463,20 +401,20 @@ func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta
 	// 失败」，看不出是没配置还是微信侧报错。非 dev 环境先在这里明确挡下。
 	// dev 保留上面的 mock 回退，否则本地不带真凭据就跑不通小程序登录。
 	if !s.cfg.IsDev() && (cl.WechatAppID == "" || secretPlain == "") {
-		return nil, nil, apperr.New(apperr.ErrInvalidArgument, "WECHAT_NOT_CONFIGURED",
+		return nil, apperr.New(apperr.ErrInvalidArgument, "WECHAT_NOT_CONFIGURED",
 			"该小程序未配置微信凭据（AppID / AppSecret），请先在后台补齐")
 	}
 	info, err := s.wechat.MiniCode2Session(ctx, cl.WechatAppID, secretPlain, jsCode)
 	if err != nil {
-		return nil, nil, apperr.New(err, "WECHAT_FAILED", "小程序登录失败")
+		return nil, apperr.New(err, "WECHAT_FAILED", "小程序登录失败")
 	}
 	info.AppID = cl.WechatAppID
 	user, err := s.upsertWechatUser(models.IdentityWechatMini, info)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	meta.ClientKey = clientKey
-	return s.issueSession(user, meta)
+	return s.issueToken(user, meta)
 }
 
 func (s *Service) MockWeChatConfirm(ctx context.Context, ticket, openID string) error {
@@ -558,52 +496,52 @@ func (s *Service) upsertWechatUser(typ string, info wechat.UserInfo) (*models.Us
 	return &user, err
 }
 
-func (s *Service) issueSession(user *models.User, meta LoginMeta) (*dto.TokenResult, *models.Session, error) {
+// issueToken 完成一次登录：签发 access JWT 并把 refresh token 登记进 Redis 白名单。
+// 不再写任何会话表——会话状态只存在于 Redis。
+func (s *Service) issueToken(user *models.User, meta LoginMeta) (*dto.TokenResult, error) {
 	if user.Status != models.StatusActive {
-		return nil, nil, apperr.New(apperr.ErrDisabled, "DISABLED", "账号已停用")
+		return nil, apperr.New(apperr.ErrDisabled, "DISABLED", "账号已停用")
 	}
-	var clientID *uuid.UUID
+	// 没有会话存储就无法登记 refresh，等于发不出可续期的会话。生产环境必须配好
+	// Redis；这里显式挡下（非 coded 错误 → 500），而不是静默发一枚永远续不了期的
+	// access token。
+	if s.sessions == nil {
+		return nil, fmt.Errorf("sessionstore not configured")
+	}
 	if meta.ClientKey == "" {
 		meta.ClientKey = models.ClientKeyConsole
 	}
+	var clientID *uuid.UUID
 	if cl, err := s.store.ClientByKey(meta.ClientKey); err == nil {
 		id := cl.ID
 		clientID = &id
 	}
 	refreshRaw, err := secret.RandomToken(32)
 	if err != nil {
-		return nil, nil, err
-	}
-	sess := models.Session{
-		ID:               idgen.New(),
-		UserID:           user.ID,
-		ClientID:         clientID,
-		RefreshTokenHash: store.HashToken(refreshRaw),
-		IP:               meta.IP,
-		UserAgent:        meta.UserAgent,
-		ExpiresAt:        time.Now().Add(s.cfg.JWTRefreshTTL),
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
+		return nil, err
 	}
 	cid := uuid.Nil
+	entry := sessionstore.Entry{UserID: user.ID, Family: idgen.NewString()}
 	if clientID != nil {
 		cid = *clientID
+		entry.ClientID = cid.String()
+	}
+	// 先登记 refresh 再签 access：若 Redis 不可用，这里直接失败（非 coded 错误 → 500），
+	// 不会发出一枚「永远续不了期」的 access（fail-closed）。
+	if err := s.sessions.Issue(context.Background(), refreshRaw, entry); err != nil {
+		return nil, fmt.Errorf("session store issue: %w", err)
 	}
 	roles, _ := s.store.RoleCodes(user.ID)
-	access, jti, err := s.jwt.Sign(user.ID, sess.ID, cid, roles)
+	access, _, err := s.jwt.Sign(user.ID, cid, roles)
 	if err != nil {
-		return nil, nil, err
-	}
-	sess.AccessJTI = jti
-	if err := s.store.DB.Create(&sess).Error; err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	now := time.Now()
 	_ = s.store.DB.Model(user).Updates(map[string]any{"last_login_at": now, "last_login_ip": meta.IP, "updated_at": now}).Error
 	user.LastLoginAt = &now
 	// last_login_at 会出现在用户资料里，登录后必须让缓存失效。
 	s.cache.Del(context.Background(), user.ID)
-	return s.pack(user, roles, access, refreshRaw), &sess, nil
+	return s.pack(user, roles, access, refreshRaw), nil
 }
 
 func (s *Service) pack(user *models.User, roles []string, access, refresh string) *dto.TokenResult {
@@ -650,13 +588,17 @@ func (s *Service) maybePromoteAdmin(user *models.User, phone, email string) {
 	s.cache.Del(context.Background(), user.ID)
 }
 
-func (s *Service) revokeUserSessions(userID string, except uuid.UUID) error {
-	now := time.Now()
-	q := s.store.DB.Model(&models.Session{}).Where("user_id = ? AND revoked_at IS NULL", userID)
-	if except != uuid.Nil {
-		q = q.Where("id <> ?", except)
-	}
-	return q.Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
+// RevokeUserSessions 供其它模块（改密、停用、注销）吊销某用户全部 refresh token。
+// keepRaw 非空时保留该枚，用于「改密但留在当前设备」。
+func (s *Service) RevokeUserSessions(userID, keepRaw string) error {
+	return s.revokeUserSessions(userID, keepRaw)
+}
+
+// revokeUserSessions 吊销某用户的全部 refresh token（改密 / 重置密码 / 停用 / 注销），
+// 即「停止续期」。keepRaw 非空时保留该枚（改密场景留下当前设备）。
+// access token 在 TTL 内仍可用，这是纯验签方案的既定窗口。
+func (s *Service) revokeUserSessions(userID, keepRaw string) error {
+	return s.sessions.RevokeUserAllExcept(context.Background(), userID, keepRaw)
 }
 
 func defaultNickname(prefix, ident string) string {

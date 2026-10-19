@@ -23,8 +23,8 @@ func TestHS256SignParse(t *testing.T) {
 	if m.Alg() != AlgHS256 {
 		t.Fatalf("alg=%s", m.Alg())
 	}
-	uid, sid, cid := idgen.NewUserID(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	tok, jti, err := m.Sign(uid, sid, cid, []string{"user"})
+	uid, cid := idgen.NewUserID(), uuid.Must(uuid.NewV7())
+	tok, jti, err := m.Sign(uid, cid, []string{"user"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestHS256SignParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims.Subject != uid || claims.SessionID != sid.String() {
+	if claims.Subject != uid || claims.ClientID != cid.String() {
 		t.Fatalf("claims mismatch: %+v", claims)
 	}
 	if len(m.JWKS()["keys"].([]map[string]any)) != 0 {
@@ -55,8 +55,8 @@ func TestRS256SignParseAndJWKS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uid, sid, cid := idgen.NewUserID(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	tok, _, err := m.Sign(uid, sid, cid, []string{"superadmin"})
+	uid, cid := idgen.NewUserID(), uuid.Must(uuid.NewV7())
+	tok, _, err := m.Sign(uid, cid, []string{"superadmin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestRS256IgnoresResidualSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	uid := idgen.NewUserID()
-	hsTok, _, err := hs.Sign(uid, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), nil)
+	hsTok, _, err := hs.Sign(uid, uuid.Must(uuid.NewV7()), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/modules/codes"
 	"github.com/jianboolee/d-auth/internal/modules/legal"
 	"github.com/jianboolee/d-auth/internal/modules/profile"
+	"github.com/jianboolee/d-auth/internal/modules/sessionstore"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/modules/usercache"
 	"github.com/jianboolee/d-auth/internal/modules/usersvc"
@@ -91,9 +92,12 @@ func New(cfg *config.Config) (*gin.Engine, error) {
 		PerIPMinute: cfg.CodePerIPMinute,
 		PerIPHour:   cfg.CodePerIPHour,
 	})
-	authSvc := auth.New(cfg, st, codeSvc, smsSender, mailSender, jwt, wx, redis, userCache)
+	// refresh token 白名单（会话状态）存 Redis。fail-closed：Redis 不可用时
+	// 登录/续期直接失败，这与 usercache 的 fail-open 不同（那是可选缓存）。
+	sessionStore := sessionstore.New(redis, cfg.JWTRefreshTTL)
+	authSvc := auth.New(cfg, st, codeSvc, smsSender, mailSender, jwt, wx, redis, sessionStore, userCache)
 	userSvc := usersvc.New(cfg, st, codeSvc, oss, authSvc, userCache)
-	adminSvc := admin.New(cfg, st, userCache)
+	adminSvc := admin.New(cfg, st, sessionStore, userCache)
 	legalSvc := legal.New(st)
 	profileSvc := profile.New(cfg, st, userCache)
 	return httpx.NewRouter(cfg, authSvc, userSvc, adminSvc, legalSvc, profileSvc), nil

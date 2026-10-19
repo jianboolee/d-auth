@@ -1,0 +1,11 @@
+-- 会话状态从 Postgres 迁移到 Redis（refresh token 白名单，见
+-- internal/modules/sessionstore）。读路径改为纯 JWT 验签，不再查会话表，
+-- 因此 auth_sessions 整表废弃。
+--
+-- 与 0004 同样的处理方式：表已从 0001_init.sql 移除，但迁移器对已应用过的
+-- 文件只跑一次，所以在新库上本迁移是空操作（IF EXISTS 保证可安全重跑），
+-- 在旧库上真正把表删掉。
+--
+-- 注意：这是一个破坏性发布。旧库里的会话行被丢弃后，所有存量浏览器会话失效，
+-- 用户需重新登录一次（refresh token 已不在 Redis 白名单里）。
+DROP TABLE IF EXISTS auth_sessions;

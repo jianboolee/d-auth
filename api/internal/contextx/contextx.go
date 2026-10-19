@@ -15,12 +15,11 @@ const (
 type Actor struct {
 	Kind ActorKind
 	// UserID 是用户的 22 位字母数字 ID（见 internal/idgen）；其余是各自实体的 uuid。
-	UserID    string
-	APIKeyID  uuid.UUID
-	SessionID uuid.UUID
-	ClientID  uuid.UUID
-	Roles     []string
-	Scopes    []string
+	UserID   string
+	APIKeyID uuid.UUID
+	ClientID uuid.UUID
+	Roles    []string
+	Scopes   []string
 }
 
 func SetActor(c *gin.Context, a Actor) {

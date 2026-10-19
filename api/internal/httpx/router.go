@@ -90,8 +90,6 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 				me.POST("/me/email/bind", h.BindEmail)
 				me.GET("/me/identities", h.Identities)
 				me.DELETE("/me/identities/:id", h.DeleteIdentity)
-				me.GET("/me/sessions", h.Sessions)
-				me.DELETE("/me/sessions/:id", h.DeleteSession)
 				me.POST("/me/avatar/sign", h.SignAvatar)
 				me.POST("/me/avatar/confirm", h.ConfirmAvatar)
 				me.PUT("/me/avatar/upload", h.UploadAvatar)
@@ -104,8 +102,6 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			// 仪表盘概览：用户总数 / 活跃 / 今日与昨日注册，只读，与列表接口同权限
 			adminG.GET("/stats", RequireScope("users:read"), h.AdminStats)
 			adminG.GET("/users/:id", RequireScope("users:read"), h.AdminUser)
-			// 用户的登录会话独立分页，不塞进详情响应（会话数可能很多）
-			adminG.GET("/users/:id/sessions", RequireScope("users:read"), h.AdminUserSessions)
 			adminG.POST("/users", RequireScope("users:write"), h.AdminCreateUser)
 			// 生成虚拟手机号（120 开头），供建号表单「生成虚拟号」按钮填入；不写库。
 			// 路径放在 /users 之外，与 /users/:id 这类参数路由保持分离。

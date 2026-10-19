@@ -245,18 +245,16 @@ func (s *Store) CountActiveSuperAdmins() (int64, error) {
 // 抹掉的字段与保留的字段：
 //   - 抹掉：昵称、头像 key、简介、性别、密码哈希、最近登录 IP；
 //   - 释放：全部 identity 行（否则 (type, identifier) 唯一索引会永久占用该手机号/邮箱）、
-//     全部 session 行（含 IP 与 User-Agent）、把用户创建的 API Key 的 created_by 置空；
+//     把用户创建的 API Key 的 created_by 置空；
 //   - 保留：id 与 created_at，仅作为墓碑。
 //
-// 访问控制交给 status=deleted + deleted_at：resolveActor 两条路径都要求 status == active，
-// UserByID/ListUsers 都过滤 deleted_at IS NULL，因此墓碑既不能登录也不会出现在后台列表。
+// 访问控制交给 status=deleted + deleted_at：resolveActor 验签后不查库，注销的即时性
+// 靠调用方在事务后吊销该用户的 refresh token（见 usersvc.delete → auth.RevokeUserSessions）；
+// UserByID/ListUsers 都过滤 deleted_at IS NULL，因此墓碑既不能再续期也不会出现在后台列表。
 // 整个过程在一个事务里完成，避免中途失败留下「身份已释放但账号仍能登录」的中间态。
 func (s *Store) DeleteAccount(userID string) error {
 	return s.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&models.Identity{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&models.Session{}).Error; err != nil {
 			return err
 		}
 		// created_by 是 RESTRICT 外键且可空：解绑而不是删掉密钥，

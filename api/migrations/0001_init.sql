@@ -83,25 +83,6 @@ CREATE TABLE IF NOT EXISTS auth_api_keys (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS auth_sessions (
-    id UUID PRIMARY KEY,
-    -- user_id 是 TEXT（见 auth_users.id）；client_id 仍是 uuid。
-    user_id TEXT NOT NULL REFERENCES auth_users (id),
-    client_id UUID REFERENCES auth_clients (id),
-    refresh_token_hash TEXT NOT NULL,
-    access_jti TEXT NOT NULL DEFAULT '',
-    ip TEXT NOT NULL DEFAULT '',
-    user_agent TEXT NOT NULL DEFAULT '',
-    expires_at TIMESTAMPTZ NOT NULL,
-    revoked_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions (user_id);
-CREATE INDEX IF NOT EXISTS auth_sessions_refresh_hash_idx ON auth_sessions (refresh_token_hash);
-CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx ON auth_sessions (expires_at);
-
 CREATE TABLE IF NOT EXISTS auth_audit_logs (
     id UUID PRIMARY KEY,
     -- actor/target 是用户 ID（TEXT），是历史快照，刻意不加外键。

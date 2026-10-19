@@ -207,22 +207,6 @@ type APIKey struct {
 
 func (APIKey) TableName() string { return "auth_api_keys" }
 
-type Session struct {
-	ID               uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID           string     `gorm:"type:text" json:"user_id"`
-	ClientID         *uuid.UUID `json:"client_id"`
-	RefreshTokenHash string     `json:"-"`
-	AccessJTI        string     `json:"-"`
-	IP               string     `json:"ip"`
-	UserAgent        string     `json:"user_agent"`
-	ExpiresAt        time.Time  `json:"expires_at"`
-	RevokedAt        *time.Time `json:"revoked_at"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-}
-
-func (Session) TableName() string { return "auth_sessions" }
-
 type AuditLog struct {
 	ID           uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
 	ActorUserID  *string    `gorm:"type:text" json:"actor_user_id"`

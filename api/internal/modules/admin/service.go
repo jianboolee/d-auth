@@ -18,6 +18,7 @@ import (
 	"github.com/jianboolee/d-auth/internal/infra/secret"
 	"github.com/jianboolee/d-auth/internal/models"
 	"github.com/jianboolee/d-auth/internal/modules/dto"
+	"github.com/jianboolee/d-auth/internal/modules/sessionstore"
 	"github.com/jianboolee/d-auth/internal/modules/store"
 	"github.com/jianboolee/d-auth/internal/modules/usercache"
 	"github.com/jianboolee/d-auth/internal/normalize"
@@ -27,13 +28,15 @@ import (
 type Service struct {
 	cfg   *config.Config
 	store *store.Store
+	// sessions 是 refresh token 白名单，后台停用/改密用户时用它吊销其全部会话。
+	sessions *sessionstore.Store
 	// cache 缓存组装好的用户资料。后台的每个写操作都会改动资料、角色或身份，
 	// 因此写完都要 Del，否则业务端最多在 TTL 内看到旧数据。
 	cache *usercache.Cache
 }
 
-func New(cfg *config.Config, st *store.Store, cache *usercache.Cache) *Service {
-	return &Service{cfg: cfg, store: st, cache: cache}
+func New(cfg *config.Config, st *store.Store, sessions *sessionstore.Store, cache *usercache.Cache) *Service {
+	return &Service{cfg: cfg, store: st, sessions: sessions, cache: cache}
 }
 
 type UserListQuery struct {
@@ -161,9 +164,8 @@ func (s *Service) ListUsers(q UserListQuery) ([]dto.User, int64, error) {
 	return out, total, nil
 }
 
-// GetUser 只组装详情页需要的基本信息与身份。会话不在这里返回：一个用户可能
-// 有很多条会话，塞进详情响应会让每次打开详情都为它买单，所以改由
-// ListUserSessions 单独分页提供（界面上的「会话记录」入口）。
+// GetUser 只组装详情页需要的基本信息与身份。会话不再返回：会话状态已归
+// Redis 白名单，后台也不再有会话列表入口。
 func (s *Service) GetUser(id string) (dto.User, []models.Identity, error) {
 	user, err := s.store.UserByID(id)
 	if err != nil {
@@ -209,35 +211,6 @@ func (s *Service) Stats() (StatsView, error) {
 		Where("deleted_at IS NULL").
 		Scan(&v).Error
 	return v, err
-}
-
-// ListUserSessions 分页返回某个用户的登录会话，最近创建的在前。
-//
-// 与自助端 usersvc.Sessions 的差别：那里只列「仍然有效」的会话（用户只需要
-// 管理自己当前登录的设备），后台则是审计视角，已失效与被下线的记录同样要能
-// 看到，所以这里不做 revoked/expired 过滤，由界面用状态列区分。
-func (s *Service) ListUserSessions(id string, page, size int) ([]models.Session, int64, error) {
-	if _, err := s.store.UserByID(id); err != nil {
-		return nil, 0, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
-	}
-	if page < 1 {
-		page = 1
-	}
-	if size < 1 || size > 100 {
-		size = 20
-	}
-	tx := s.store.DB.Model(&models.Session{}).Where("user_id = ?", id)
-	var total int64
-	if err := tx.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-	var list []models.Session
-	// id 兜底排序：同一秒建立的多条会话没有稳定次序，翻页会重复或漏行。
-	if err := tx.Order("created_at DESC, id DESC").
-		Offset((page - 1) * size).Limit(size).Find(&list).Error; err != nil {
-		return nil, 0, err
-	}
-	return list, total, nil
 }
 
 type CreateUserInput struct {
@@ -345,9 +318,9 @@ func (s *Service) PatchUser(id string, in PatchUserInput) (dto.User, error) {
 		}
 	}
 	if in.Status != nil && *in.Status == models.StatusDisabled {
-		now := time.Now()
-		_ = s.store.DB.Model(&models.Session{}).Where("user_id = ? AND revoked_at IS NULL", id).
-			Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
+		// 停用即吊销全部 refresh：该用户不能再续期。已签发的 access token
+		// 在 TTL 内仍可验签通过（纯验签方案的既定窗口）。
+		_ = s.sessions.RevokeUserAll(context.Background(), id)
 	}
 	s.invalidate(id)
 	u, _, err := s.GetUser(id)
@@ -472,9 +445,8 @@ func (s *Service) ResetPassword(id string, pass string) error {
 	}
 	// has_password 会出现在资料里（dto.User.HasPassword）。
 	s.invalidate(id)
-	now := time.Now()
-	return s.store.DB.Model(&models.Session{}).Where("user_id = ? AND revoked_at IS NULL", id).
-		Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
+	// 管理员重置密码后吊销该用户全部 refresh：其它设备无法再续期。
+	return s.sessions.RevokeUserAll(context.Background(), id)
 }
 
 // RoleView 是后台角色列表的一行。带 user_count 便于判断某个角色是否还在被使用，
@@ -707,9 +679,9 @@ func (s *Service) UpdateClient(id uuid.UUID, in ClientInput) (*models.Client, er
 
 // DeleteClient 物理删除应用。
 //
-// auth_sessions.client_id 是指向 auth_clients 的外键且没有 ON DELETE，直接删会
-// 撞外键冲突；而会话是用户的登录历史，不该因为应用被删就跟着消失。所以先把
-// 引用置空再删应用——与 DeleteAccount 解绑 api_keys.created_by 是同一考虑。
+// 删除应用时同步吊销归属它的全部 refresh。会话归属信息现在存在 Redis 里
+// （refresh 记录的 cid 字段），Postgres 侧不再有 auth_sessions 外键约束，
+// 因此直接删应用即可，无外键冲突。
 func (s *Service) DeleteClient(id uuid.UUID) error {
 	cl, err := s.store.ClientByID(id)
 	if err != nil {
@@ -719,13 +691,10 @@ func (s *Service) DeleteClient(id uuid.UUID) error {
 		return apperr.New(apperr.ErrInvalidArgument, "CLIENT_PROTECTED",
 			"控制台应用不允许删除")
 	}
-	return s.store.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.Session{}).Where("client_id = ?", id).
-			Update("client_id", nil).Error; err != nil {
-			return err
-		}
-		return tx.Delete(&models.Client{}, "id = ?", id).Error
-	})
+	if err := s.sessions.RevokeClientAll(context.Background(), id.String()); err != nil {
+		return err
+	}
+	return s.store.DB.Delete(&models.Client{}, "id = ?", id).Error
 }
 
 func (s *Service) ListAPIKeys() ([]models.APIKey, error) {

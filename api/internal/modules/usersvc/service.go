@@ -32,25 +32,44 @@ type CodeVerifier interface {
 	Verify(ctx context.Context, scene, target, code string) error
 }
 
+// SessionRevoker 是 usersvc 依赖的「吊销用户全部 refresh token」能力。
+// 同样是窄接口 + 可为 nil：注销会调它，而注销流程的测试只跑 Postgres，
+// 不该被迫拉起 Redis。生产注入的是 *auth.Service。
+type SessionRevoker interface {
+	RevokeUserSessions(userID, keepRaw string) error
+}
+
 type Service struct {
 	cfg   *config.Config
 	store *store.Store
 	codes CodeVerifier
 	oss   ossstore.Store
 	auth  *auth.Service
+	// revoker 吊销 refresh token（改密 / 注销）。可为 nil：只跑 Postgres 的
+	// 测试不注入它，此时吊销被跳过（测试不涉及 Redis 会话）。
+	revoker SessionRevoker
 	// cache 缓存组装好的用户资料。自助接口的每个写操作（改资料、改密码、
 	// 换绑手机/邮箱、改头像、注销）都会让资料变化，因此每次写完都要 Del。
 	cache *usercache.Cache
 }
 
 func New(cfg *config.Config, st *store.Store, c *codes.Service, oss ossstore.Store, a *auth.Service, cache *usercache.Cache) *Service {
-	return &Service{cfg: cfg, store: st, codes: c, oss: oss, auth: a, cache: cache}
+	return &Service{cfg: cfg, store: st, codes: c, oss: oss, auth: a, revoker: a, cache: cache}
 }
 
 // invalidate 让某个用户的资料缓存立即作废。所有会改动用户资料的自助写操作
 // 都应调用它；漏掉只会在 TTL 内返回旧数据，不会报错。
 func (s *Service) invalidate(userID string) {
 	s.cache.Del(context.Background(), userID)
+}
+
+// revokeAll 吊销某用户全部 refresh token，keepRaw 非空时保留该枚。
+// revoker 为 nil（只跑 Postgres 的测试）时直接返回 nil。
+func (s *Service) revokeAll(userID, keepRaw string) error {
+	if s.revoker == nil {
+		return nil
+	}
+	return s.revoker.RevokeUserSessions(userID, keepRaw)
 }
 
 func (s *Service) Me(userID string) (dto.User, error) {
@@ -82,8 +101,10 @@ func (s *Service) UpdateMe(userID string, p PatchMe) (dto.User, error) {
 }
 
 // ChangePassword 直接设置新密码，不再校验原密码（登录态本身即凭据）。
-// 成功后撤销除当前会话外的其它会话，改密码即让其它设备下线。
-func (s *Service) ChangePassword(userID string, newPass string, sessionID uuid.UUID) error {
+// 成功后吊销该用户除 keepRefresh 外的全部 refresh token：其它设备无法再续期，
+// 当前设备（keepRefresh 对应的那枚）继续可用。keepRefresh 为空时踢掉全部。
+// 已签发的 access token 在 TTL 内仍可用（纯验签方案的既定窗口）。
+func (s *Service) ChangePassword(userID string, newPass string, keepRefresh string) error {
 	if !password.ValidPlain(newPass) {
 		return apperr.New(apperr.ErrInvalidArgument, "WEAK_PASSWORD", "密码至少 8 位")
 	}
@@ -98,10 +119,7 @@ func (s *Service) ChangePassword(userID string, newPass string, sessionID uuid.U
 	}
 	// has_password 会出现在资料里。
 	s.invalidate(userID)
-	now := time.Now()
-	return s.store.DB.Model(&models.Session{}).
-		Where("user_id = ? AND id <> ? AND revoked_at IS NULL", userID, sessionID).
-		Updates(map[string]any{"revoked_at": now, "updated_at": now}).Error
+	return s.revokeAll(userID, keepRefresh)
 }
 
 // ChangePhone 换绑/首次绑定手机号，只校验新手机号的验证码（bind_phone 场景）。
@@ -242,6 +260,9 @@ func (s *Service) delete(userID string) error {
 	if err := s.store.DeleteAccount(userID); err != nil {
 		return err
 	}
+	// 读路径不查库，注销的即时性全靠这里吊销 refresh：之后无法再续期。
+	// 已签发的 access token 在 TTL 内仍可用（既定窗口）。
+	_ = s.revokeAll(userID, "")
 	s.invalidate(userID)
 	return nil
 }
@@ -288,27 +309,6 @@ func (s *Service) UnbindIdentity(userID string, identID uuid.UUID) error {
 		return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "标识不存在")
 	}
 	s.invalidate(userID)
-	return nil
-}
-
-func (s *Service) Sessions(userID string) ([]models.Session, error) {
-	var list []models.Session
-	err := s.store.DB.Where("user_id = ? AND revoked_at IS NULL AND expires_at > ?", userID, time.Now()).
-		Order("created_at DESC").Find(&list).Error
-	return list, err
-}
-
-func (s *Service) RevokeSession(userID string, sessionID uuid.UUID) error {
-	now := time.Now()
-	res := s.store.DB.Model(&models.Session{}).
-		Where("id = ? AND user_id = ? AND revoked_at IS NULL", sessionID, userID).
-		Updates(map[string]any{"revoked_at": now, "updated_at": now})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return apperr.New(apperr.ErrNotFound, "NOT_FOUND", "会话不存在")
-	}
 	return nil
 }
 

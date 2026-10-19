@@ -28,8 +28,7 @@ const (
 type Claims struct {
 	Roles []string `json:"roles"`
 	jwt.RegisteredClaims
-	SessionID string `json:"sid"`
-	ClientID  string `json:"cid,omitempty"`
+	ClientID string `json:"cid,omitempty"`
 }
 
 type Options struct {
@@ -108,10 +107,17 @@ func resolveAlg(raw, secret string) (string, error) {
 
 func (m *Manager) Alg() string { return m.alg }
 
-func (m *Manager) Sign(userID string, sessionID, clientID uuid.UUID, roles []string) (string, string, error) {
+// Sign 签发一枚 access token。claims 里带 sub(用户 ID)、roles、cid(client)，
+// 不带任何会话标识——读路径只验签即认人，会话续期由 Redis 白名单裁决。
+func (m *Manager) Sign(userID string, clientID uuid.UUID, roles []string) (string, string, error) {
 	jti := uuid.NewString()
 	now := time.Now()
 	// sub 是用户 ID（22 位小写字母数字串）。
+	// cid 仅在确有归属应用时写入，避免把全零 UUID 塞进公开 claims。
+	cid := ""
+	if clientID != uuid.Nil {
+		cid = clientID.String()
+	}
 	claims := Claims{
 		Roles: roles,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -121,8 +127,7 @@ func (m *Manager) Sign(userID string, sessionID, clientID uuid.UUID, roles []str
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.accessTTL)),
 			ID:        jti,
 		},
-		SessionID: sessionID.String(),
-		ClientID:  clientID.String(),
+		ClientID: cid,
 	}
 
 	var tok *jwt.Token

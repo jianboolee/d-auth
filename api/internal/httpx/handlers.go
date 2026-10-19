@@ -2,7 +2,6 @@ package httpx
 
 import (
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -38,21 +37,35 @@ type Handlers struct {
 	Profiles *profile.Service
 }
 
-// setSessionCookieFor 是包级版本，供 middleware 直接调用（那里只有 cfg、没有
-// Handlers 实例）。Cookie 的 MaxAge 与会话 TTL 同源，所以续期时必须一并重发，
-// 否则数据库里的 expires_at 往后延了、浏览器端 Cookie 仍会在原定时刻失效。
-func setSessionCookieFor(c *gin.Context, cfg *config.Config, sessionID uuid.UUID) {
+// 两枚 cookie 分工明确：
+//
+//   - access（CookieName，默认 dauth_access）= RS256 JWT，Path=/，跨子域可见。
+//     业务后端与 d-auth 都靠它「验签即认人」，所以它必须能被业务读到。
+//   - refresh（CookieRefreshName，默认 dauth_refresh）= 不透明随机串，
+//     Path 限制在 CookieRefreshPath（默认 /v1/auth）。业务系统任何路径都不匹配，
+//     浏览器根本不会携带它，因此 refresh 永远不外流到业务侧。
+//
+// 两者都是 HttpOnly（JS 读不到）、SameSite=Lax。
+func setAuthCookies(c *gin.Context, cfg *config.Config, access, refresh string) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(cfg.CookieName, sessionID.String(), int(cfg.JWTRefreshTTL.Seconds()), "/", cfg.CookieDomain, cfg.CookieSecure, true)
+	c.SetCookie(cfg.CookieName, access, int(cfg.JWTAccessTTL.Seconds()),
+		"/", cfg.CookieDomain, cfg.CookieSecure, true)
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(cfg.CookieRefreshName, refresh, int(cfg.JWTRefreshTTL.Seconds()),
+		cfg.CookieRefreshPath, cfg.CookieDomain, cfg.CookieSecure, true)
 }
 
-func (h *Handlers) setSessionCookie(c *gin.Context, sessionID uuid.UUID) {
-	setSessionCookieFor(c, h.Cfg, sessionID)
+func (h *Handlers) setAuthCookies(c *gin.Context, access, refresh string) {
+	setAuthCookies(c, h.Cfg, access, refresh)
 }
 
-func (h *Handlers) clearCookie(c *gin.Context) {
+// clearAuthCookies 清除两枚 cookie。删除时 Path 必须与设置时一致，否则浏览器
+// 会当作不同 cookie 而删不掉——两枚 cookie 的 Path 不同，这里各清各的。
+func (h *Handlers) clearAuthCookies(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(h.Cfg.CookieName, "", -1, "/", h.Cfg.CookieDomain, h.Cfg.CookieSecure, true)
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(h.Cfg.CookieRefreshName, "", -1, h.Cfg.CookieRefreshPath, h.Cfg.CookieDomain, h.Cfg.CookieSecure, true)
 }
 
 func (h *Handlers) meta(c *gin.Context) auth.LoginMeta {
@@ -100,12 +113,12 @@ func (h *Handlers) SMSLogin(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	tokens, sess, err := h.Auth.SMSLogin(c, req.Phone, req.Code, h.meta(c))
+	tokens, err := h.Auth.SMSLogin(c, req.Phone, req.Code, h.meta(c))
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	h.setSessionCookie(c, sess.ID)
+	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
 	response.OK(c, tokens)
 }
 
@@ -138,12 +151,12 @@ func (h *Handlers) EmailRegister(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	tokens, sess, err := h.Auth.EmailRegister(c, req.Email, req.Code, req.Password, req.Nickname, h.meta(c))
+	tokens, err := h.Auth.EmailRegister(c, req.Email, req.Code, req.Password, req.Nickname, h.meta(c))
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	h.setSessionCookie(c, sess.ID)
+	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
 	response.OK(c, tokens)
 }
 
@@ -158,12 +171,12 @@ func (h *Handlers) PasswordLogin(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	tokens, sess, err := h.Auth.PasswordLogin(c, req.Identifier, req.Password, h.meta(c))
+	tokens, err := h.Auth.PasswordLogin(c, req.Identifier, req.Password, h.meta(c))
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	h.setSessionCookie(c, sess.ID)
+	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
 	response.OK(c, tokens)
 }
 
@@ -178,12 +191,12 @@ func (h *Handlers) EmailLogin(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	tokens, sess, err := h.Auth.EmailLogin(c, req.Email, req.Password, h.meta(c))
+	tokens, err := h.Auth.EmailLogin(c, req.Email, req.Password, h.meta(c))
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	h.setSessionCookie(c, sess.ID)
+	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
 	response.OK(c, tokens)
 }
 
@@ -221,19 +234,22 @@ type refreshReq struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// Refresh 用 refresh token 换新的 access token。refresh 来自两处：HttpOnly
+// 的 dauth_refresh cookie（浏览器），或请求体 refresh_token（小程序 / App——
+// 它们没有 cookie）。轮换后重设两枚 cookie，并把新 refresh 一并回给无 cookie 的客户端。
 func (h *Handlers) Refresh(c *gin.Context) {
 	var req refreshReq
 	_ = c.ShouldBindJSON(&req)
-	var sid uuid.UUID
-	if ck, err := c.Cookie(h.Cfg.CookieName); err == nil {
-		sid, _ = uuid.Parse(ck)
+	refresh := req.RefreshToken
+	if refresh == "" {
+		refresh, _ = c.Cookie(h.Cfg.CookieRefreshName)
 	}
-	tokens, sess, err := h.Auth.Refresh(req.RefreshToken, sid, h.meta(c))
+	tokens, err := h.Auth.Refresh(refresh, h.meta(c))
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	h.setSessionCookie(c, sess.ID)
+	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
 	response.OK(c, tokens)
 }
 
@@ -241,33 +257,21 @@ type logoutReq struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// Logout 停止续期并清除 cookie。refresh 来自 cookie 或请求体（小程序 / App）。
+// 幂等：无论 refresh 是否有效都返回成功——登出只「不再能续期」，已签发的
+// access token 在 TTL 内仍可用（纯验签方案的既定窗口）。
 func (h *Handlers) Logout(c *gin.Context) {
 	var req logoutReq
 	_ = c.ShouldBindJSON(&req)
-
-	// 会话定位优先用 actor（OptionalAuth 已解析 Bearer / cookie），
-	// 再回退 cookie，最后用 refresh token——后者让 access token 已过期的
-	// token 客户端（App / 小程序）也能真正吊销会话。
-	var sid uuid.UUID
-	if a, ok := contextx.GetActor(c); ok {
-		sid = a.SessionID
+	refresh := req.RefreshToken
+	if refresh == "" {
+		refresh, _ = c.Cookie(h.Cfg.CookieRefreshName)
 	}
-	if sid == uuid.Nil {
-		if ck, err := c.Cookie(h.Cfg.CookieName); err == nil {
-			sid, _ = uuid.Parse(ck)
-		}
+	if err := h.Auth.RevokeSession(refresh); err != nil {
+		WriteError(c, err)
+		return
 	}
-
-	// 有可定位的会话就必须吊销成功，否则不能谎报「已退出」：会话仍然有效，
-	// 清掉 cookie 只会让用户以为退出了。此时保留 cookie 让用户能重试。
-	if sid != uuid.Nil || req.RefreshToken != "" {
-		if err := h.Auth.RevokeSession(sid, req.RefreshToken); err != nil {
-			slog.Error("logout revoke session", "err", err, "session_id", sid)
-			WriteError(c, err)
-			return
-		}
-	}
-	h.clearCookie(c)
+	h.clearAuthCookies(c)
 	response.OK(c, gin.H{"ok": true})
 }
 
@@ -281,13 +285,13 @@ func (h *Handlers) WeChatQRStart(c *gin.Context) {
 }
 
 func (h *Handlers) WeChatQRStatus(c *gin.Context) {
-	payload, tokens, sess, err := h.Auth.WeChatQRStatus(c, c.Query("ticket"))
+	payload, tokens, err := h.Auth.WeChatQRStatus(c, c.Query("ticket"))
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 	if tokens != nil {
-		h.setSessionCookie(c, sess.ID)
+		h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
 		response.OK(c, gin.H{"status": "confirmed", "tokens": tokens})
 		return
 	}
@@ -314,12 +318,12 @@ func (h *Handlers) WeChatMini(c *gin.Context) {
 	if !response.BindJSON(c, &req) {
 		return
 	}
-	tokens, sess, err := h.Auth.WeChatMini(c, req.ClientKey, req.Code, h.meta(c))
+	tokens, err := h.Auth.WeChatMini(c, req.ClientKey, req.Code, h.meta(c))
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	h.setSessionCookie(c, sess.ID)
+	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
 	response.OK(c, tokens)
 }
 
@@ -398,15 +402,14 @@ func (h *Handlers) AdminUpdateLegal(c *gin.Context) {
 }
 
 type sessionResp struct {
-	User    *dto.User    `json:"user,omitempty"`
-	Session *dto.Session `json:"session,omitempty"`
+	User *dto.User `json:"user,omitempty"`
 }
 
-// Session 是登录探针：未登录返回 200 空对象，已登录返回当前用户与当前会话
-// （设备/IP/过期时间，不含任何 token）。前端用它替代 /me 判断登录态，
-// 未登录时不再产生 401。
+// Session 是登录探针：未登录返回 200 空对象，已登录返回当前用户。
+// 前端用它替代 /me 判断登录态，未登录时不再产生 401。
+// 不再返回会话明细——会话状态已归 Redis 白名单，且不再对外暴露设备列表。
 func (h *Handlers) Session(c *gin.Context) {
-	actor, sess, err := resolveActor(c, h.Cfg, h.Auth)
+	actor, err := resolveActor(c, h.Cfg, h.Auth)
 	if err != nil || actor == nil || actor.Kind != contextx.ActorUser {
 		response.OK(c, sessionResp{})
 		return
@@ -417,12 +420,7 @@ func (h *Handlers) Session(c *gin.Context) {
 		response.OK(c, sessionResp{})
 		return
 	}
-	out := sessionResp{User: &u}
-	if sess != nil {
-		s := dto.FromSession(sess)
-		out.Session = &s
-	}
-	response.OK(c, out)
+	response.OK(c, sessionResp{User: &u})
 }
 
 func (h *Handlers) PatchMe(c *gin.Context) {
@@ -449,7 +447,11 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 		return
 	}
 	a, _ := contextx.GetActor(c)
-	if err := h.Users.ChangePassword(a.UserID, req.NewPassword, a.SessionID); err != nil {
+	// 改密踢掉其它设备，但保留当前设备：把当前 refresh cookie 传下去，
+	// 服务端吊销该用户除它以外的全部 refresh。无 cookie（Bearer 调用）时
+	// 保留项为空，等价于踢掉全部，客户端需重新登录。
+	keep, _ := c.Cookie(h.Cfg.CookieRefreshName)
+	if err := h.Users.ChangePassword(a.UserID, req.NewPassword, keep); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -559,7 +561,7 @@ func (h *Handlers) DeleteAccount(c *gin.Context) {
 	}
 	// 自己就是被删对象，审计的 actor 与 target 相同；审计表没有外键，行会保留。
 	h.audit(c, "user.delete", &a.UserID, nil)
-	h.clearCookie(c)
+	h.clearAuthCookies(c)
 	response.OK(c, gin.H{"ok": true})
 }
 
@@ -579,30 +581,6 @@ func (h *Handlers) AdminDeleteUser(c *gin.Context) {
 		return
 	}
 	h.audit(c, "user.delete", &id, map[string]any{"by": "admin"})
-	response.OK(c, gin.H{"ok": true})
-}
-
-func (h *Handlers) Sessions(c *gin.Context) {
-	a, _ := contextx.GetActor(c)
-	list, err := h.Users.Sessions(a.UserID)
-	if err != nil {
-		WriteError(c, err)
-		return
-	}
-	response.OK(c, dto.FromSessions(list))
-}
-
-func (h *Handlers) DeleteSession(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
-		return
-	}
-	a, _ := contextx.GetActor(c)
-	if err := h.Users.RevokeSession(a.UserID, id); err != nil {
-		WriteError(c, err)
-		return
-	}
 	response.OK(c, gin.H{"ok": true})
 }
 
@@ -696,26 +674,8 @@ func (h *Handlers) AdminUser(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	// 会话不在这里返回，走 /users/:id/sessions 分页获取。
+	// 会话不在这里返回，也不再有会话列表接口（会话状态已归 Redis 白名单）。
 	response.OK(c, gin.H{"user": u, "identities": dto.FromIdentities(idents)})
-}
-
-// AdminUserSessions 分页返回某用户的登录会话。后台是审计视角，已失效/已下线的
-// 记录同样返回，由前端用状态列区分。
-func (h *Handlers) AdminUserSessions(c *gin.Context) {
-	id, err := idgen.ParseUserID(c.Param("id"))
-	if err != nil {
-		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
-		return
-	}
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "10"))
-	list, total, err := h.Admin.ListUserSessions(id, page, size)
-	if err != nil {
-		WriteError(c, err)
-		return
-	}
-	response.OK(c, gin.H{"items": dto.FromSessions(list), "total": total, "page": page, "size": size})
 }
 
 func (h *Handlers) AdminCreateUser(c *gin.Context) {
