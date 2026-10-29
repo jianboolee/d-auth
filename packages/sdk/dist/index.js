@@ -17,6 +17,8 @@ export class DAuthClient {
     getAccessToken;
     setAccessToken;
     onUnauthorized;
+    /** 同一时刻只允许一次续期：refresh 会轮换，多请求并发刷新会让后到的请求失败。 */
+    refreshPromise = null;
     constructor(opts) {
         this.baseURL = normalizeBaseURL(opts.baseURL);
         this.apiKey = opts.apiKey?.trim() ?? "";
@@ -88,11 +90,24 @@ export class DAuthClient {
             headers,
             credentials: this.mode === "cookie" ? "include" : "omit",
         });
-        // 仅在确有可续期凭据时才 refresh，避免未登录时 me → 401 → refresh 二次空打
-        const canRefresh = !!(token && !this.apiKey) || this.hasRefreshCredential();
+        const text = await res.text();
+        let parsed = null;
+        try {
+            parsed = text ? JSON.parse(text) : null;
+        }
+        catch {
+            parsed = null;
+        }
+        const code = parsed?.code;
+        // 只对「会话失效」续期，不能对登录密码错误（同为 401，但 code 是
+        // INVALID_CREDENTIALS）也刷新，否则一次错误登录会重放成两次。
+        //
+        // Cookie 模式的可续期凭据是 HttpOnly cookie，JS 读不到，不能因为
+        // localStorage 为空就认定「无法续期」——否则 access 到期后永远不会刷新。
+        const canRefresh = !this.apiKey && (this.mode === "cookie" || !!token || this.hasRefreshCredential());
         if (res.status === 401 &&
+            code === "UNAUTHORIZED" &&
             retry &&
-            !this.apiKey &&
             canRefresh &&
             path !== "/v1/auth/refresh" &&
             path !== "/v1/auth/logout") {
@@ -104,17 +119,9 @@ export class DAuthClient {
                 this.clearTokens();
             }
         }
-        const text = await res.text();
-        let parsed = null;
-        try {
-            parsed = text ? JSON.parse(text) : null;
-        }
-        catch {
-            parsed = null;
-        }
         if (!res.ok) {
             const err = {
-                code: parsed?.code ?? "HTTP_ERROR",
+                code: code ?? "HTTP_ERROR",
                 message: parsed?.message ?? res.statusText,
                 status: res.status,
             };
@@ -202,7 +209,17 @@ export class DAuthClient {
             body: JSON.stringify({ email, code, password }),
         });
     }
-    async refresh() {
+    refresh() {
+        // 多个请求同时 401 时共用一个 refresh：服务端轮换是单次有效的，
+        // 并发调用会让除第一枚之外的 refresh 全部失败，进而误判为掉线。
+        if (!this.refreshPromise) {
+            this.refreshPromise = this.doRefresh().finally(() => {
+                this.refreshPromise = null;
+            });
+        }
+        return this.refreshPromise;
+    }
+    async doRefresh() {
         const refresh = typeof localStorage === "undefined" ? "" : localStorage.getItem(REFRESH_KEY) || "";
         const data = await this.request("/v1/auth/refresh", { method: "POST", body: JSON.stringify({ refresh_token: refresh }) }, false);
         this.persistTokens(data);
@@ -276,7 +293,7 @@ export class DAuthClient {
         return this.request("/v1/me");
     }
     /**
-     * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户与当前会话。
+     * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户。
      * 不会返回 token，也不会因未登录报错，适合替代 `me()` 做启动时的登录态判断。
      *
      * 同样只认用户登录态：API Key 调用会命中 actor.Kind != user 的分支，
@@ -318,12 +335,6 @@ export class DAuthClient {
     }
     deleteIdentity(id) {
         return this.request(`/v1/me/identities/${id}`, { method: "DELETE" });
-    }
-    sessions() {
-        return this.request("/v1/me/sessions");
-    }
-    deleteSession(id) {
-        return this.request(`/v1/me/sessions/${id}`, { method: "DELETE" });
     }
     signAvatar(content_type) {
         return this.request("/v1/me/avatar/sign", { method: "POST", body: JSON.stringify({ content_type }) });
@@ -397,21 +408,9 @@ export class DAuthClient {
         });
         return this.request(`/v1/admin/users?${qs.toString()}`);
     }
-    /** 用户详情。会话不在此返回，用 adminUserSessions 单独分页获取。 */
+    /** 用户详情。会话不再随用户返回，也不再有会话列表接口（会话状态已归 Redis 白名单）。 */
     adminUser(id) {
         return this.request(`/v1/admin/users/${id}`);
-    }
-    /**
-     * 用户登录会话，分页返回。后台是审计视角：已失效/已下线的会话同样返回，
-     * 用 revoked_at 区分状态。
-     */
-    adminUserSessions(id, params = {}) {
-        const qs = new URLSearchParams();
-        Object.entries(params).forEach(([k, v]) => {
-            if (v !== undefined)
-                qs.set(k, String(v));
-        });
-        return this.request(`/v1/admin/users/${id}/sessions?${qs.toString()}`);
     }
     /**
      * 后台建号接口。手机号走后台宽松校验，允许 120 开头的虚拟号等非真实号段

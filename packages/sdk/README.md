@@ -70,6 +70,9 @@ try {
 ```
 
 请求会自动带 `credentials: include` 和 `X-DAuth-Client`。
+access token 过期（默认 1h）后，SDK 会在 401 `UNAUTHORIZED` 时自动用
+HttpOnly refresh cookie 续期并重试原请求；页面重新加载时 `session()` 也会静默续期。
+只有 refresh 过期（默认 30d）或主动 `logout()` 后才需要重新登录。
 
 ### App / 小程序（Bearer Token）
 

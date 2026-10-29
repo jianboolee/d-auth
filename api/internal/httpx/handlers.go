@@ -407,20 +407,38 @@ type sessionResp struct {
 
 // Session 是登录探针：未登录返回 200 空对象，已登录返回当前用户。
 // 前端用它替代 /me 判断登录态，未登录时不再产生 401。
+//
+// access token 过期后浏览器侧只剩 refresh cookie。这里顺便做一次静默续期，
+// 否则探针会返回空对象，路由守卫在 access 到期后立刻把用户赶回登录页——
+// 即使 refresh 仍然有效。续期失败才按未登录处理。
 // 不再返回会话明细——会话状态已归 Redis 白名单，且不再对外暴露设备列表。
 func (h *Handlers) Session(c *gin.Context) {
+	// 探针可能续期并写 cookie，不能被任何中间层缓存。
+	c.Header("Cache-Control", "no-store")
 	actor, err := resolveActor(c, h.Cfg, h.Auth)
-	if err != nil || actor == nil || actor.Kind != contextx.ActorUser {
+	if err == nil && actor != nil && actor.Kind == contextx.ActorUser {
+		u, uerr := h.Users.Me(actor.UserID)
+		if uerr == nil {
+			response.OK(c, sessionResp{User: &u})
+			return
+		}
+		// access 本身有效，只是用户查询失败（例如瞬时 DB 错误）。按未登录
+		// 返回即可，不能在这里续期：refresh 轮换会消耗旧 token，一旦查询
+		// 失败又没把新 cookie 发出去，用户就被误登出了。
 		response.OK(c, sessionResp{})
 		return
 	}
-	u, uerr := h.Users.Me(actor.UserID)
-	if uerr != nil {
-		// 用户已不可用（例如被停用/删除），按未登录处理，避免探针报错。
-		response.OK(c, sessionResp{})
-		return
+
+	if refresh, cerr := c.Cookie(h.Cfg.CookieRefreshName); cerr == nil && refresh != "" {
+		tokens, rerr := h.Auth.Refresh(refresh, h.meta(c))
+		if rerr == nil {
+			h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
+			response.OK(c, sessionResp{User: &tokens.User})
+			return
+		}
 	}
-	response.OK(c, sessionResp{User: &u})
+
+	response.OK(c, sessionResp{})
 }
 
 func (h *Handlers) PatchMe(c *gin.Context) {

@@ -167,5 +167,7 @@ const hit = await auth.users({ phone: "13800000000" }); // 匹配不上返回 []
 
 读路径不碰 Redis——access token 是自证 JWT，验签即认人（业务侧同理）。因此
 停用/改密/登出后旧 access token 最多再活一个 `DAUTH_JWT_ACCESS_TTL`（默认 `1h`）。
+access 到期后浏览器会用 refresh cookie 自动续期（SDK 的 401 重试与
+`/v1/auth/session` 探针都会触发），用户只在 refresh 过期或主动退出后需要重新登录。
 
 嵌入用户管理页（可选）：[`@donktech/d-auth-admin`](packages/admin/README.md) 的 `createAuthAccountRoutes` / `createAuthAdminRoutes`。

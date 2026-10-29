@@ -22,6 +22,10 @@
 - **refresh cookie 用 Path 隔离**：`Path=/v1/auth` 保证它只发给 d-auth 的续期接口，
   业务系统不会拿到 refresh token。续期是一次同站 XHR（`POST /v1/auth/refresh`，
   `credentials: "include"`），拿到新 `dauth_access` 后重试原请求，无需整页跳转。
+- **access 过期自动续期**：SDK 在 cookie 模式下遇到 401 `UNAUTHORIZED` 会先调用
+  refresh 再重试原请求（同一页面并发 401 只发起一次续期）；`GET /v1/auth/session`
+  探针在 access 过期但 refresh 有效时也会静默续期并返回当前用户。因此用户只会在
+  refresh 过期（默认 30d）或主动退出后需要重新登录。
 - **吊销窗口**：读路径不查存储，因此停用/改密/登出后旧 access token 最多再活一个
   TTL（默认 1h）。真正的吊销点是 refresh：白名单里删掉后无法再续期。TTL 因此是
   唯一的吊销窗口，按需调小。

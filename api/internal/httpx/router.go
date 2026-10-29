@@ -39,7 +39,7 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 		authg := v1.Group("/auth")
 		{
 			// 登录探针：公开路由，未登录返回 200 空对象（不能挂 Authenticate，
-			// 否则未登录会 401）。
+			// 否则未登录会 401）。access 过期时会用 refresh cookie 静默续期。
 			authg.GET("/session", h.Session)
 			// 用户协议 / 隐私政策（公开读）：登录页在未登录时也会链到这两个页面。
 			authg.GET("/legal", h.Legal)

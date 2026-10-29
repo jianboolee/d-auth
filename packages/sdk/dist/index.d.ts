@@ -65,6 +65,8 @@ export declare class DAuthClient {
     private getAccessToken;
     private setAccessToken;
     private onUnauthorized?;
+    /** 同一时刻只允许一次续期：refresh 会轮换，多请求并发刷新会让后到的请求失败。 */
+    private refreshPromise;
     constructor(opts: DAuthClientOptions);
     /**
      * 注册会话失效回调。可在客户端创建之后再设置，方便宿主等 router / store
@@ -104,6 +106,7 @@ export declare class DAuthClient {
         ok: boolean;
     }>;
     refresh(): Promise<TokenResult>;
+    private doRefresh;
     logout(): Promise<void>;
     wechatQrStart(): Promise<{
         ticket: string;
@@ -138,7 +141,7 @@ export declare class DAuthClient {
      */
     me(): Promise<User>;
     /**
-     * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户与当前会话。
+     * 登录探针：未登录返回空对象（`{}`），已登录返回当前用户。
      * 不会返回 token，也不会因未登录报错，适合替代 `me()` 做启动时的登录态判断。
      *
      * 同样只认用户登录态：API Key 调用会命中 actor.Kind != user 的分支，
@@ -146,7 +149,6 @@ export declare class DAuthClient {
      */
     session(): Promise<{
         user?: User;
-        session?: Session;
     }>;
     /**
      * 登录回跳校验：把 URL 上的 client 与 return_to 交给服务端白名单判定。
@@ -171,8 +173,6 @@ export declare class DAuthClient {
     bindEmail(email: string, code: string): Promise<unknown>;
     identities(): Promise<Identity[]>;
     deleteIdentity(id: string): Promise<unknown>;
-    sessions(): Promise<Session[]>;
-    deleteSession(id: string): Promise<unknown>;
     signAvatar(content_type: string): Promise<{
         object_key: string;
         upload_url: string;
@@ -220,23 +220,10 @@ export declare class DAuthClient {
         page: number;
         size: number;
     }>;
-    /** 用户详情。会话不在此返回，用 adminUserSessions 单独分页获取。 */
+    /** 用户详情。会话不再随用户返回，也不再有会话列表接口（会话状态已归 Redis 白名单）。 */
     adminUser(id: string): Promise<{
         user: User;
         identities: Identity[];
-    }>;
-    /**
-     * 用户登录会话，分页返回。后台是审计视角：已失效/已下线的会话同样返回，
-     * 用 revoked_at 区分状态。
-     */
-    adminUserSessions(id: string, params?: {
-        page?: number;
-        size?: number;
-    }): Promise<{
-        items: Session[];
-        total: number;
-        page: number;
-        size: number;
     }>;
     /**
      * 后台建号接口。手机号走后台宽松校验，允许 120 开头的虚拟号等非真实号段
@@ -383,17 +370,6 @@ export type Identity = {
     identifier: string;
     extra: Record<string, unknown>;
     verified_at?: string | null;
-    created_at: string;
-};
-export type Session = {
-    id: string;
-    ip: string;
-    /** 已归纳的设备描述，如 "Chrome 152 · macOS" */
-    device: string;
-    /** 原始 User-Agent，仅用于排查问题 */
-    user_agent: string;
-    expires_at: string;
-    revoked_at?: string | null;
     created_at: string;
 };
 export type Role = {

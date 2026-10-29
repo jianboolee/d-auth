@@ -79,6 +79,8 @@ export class DAuthClient {
   private getAccessToken: () => string | null;
   private setAccessToken: (token: string | null) => void;
   private onUnauthorized?: () => void;
+  /** 同一时刻只允许一次续期：refresh 会轮换，多请求并发刷新会让后到的请求失败。 */
+  private refreshPromise: Promise<TokenResult> | null = null;
 
   constructor(opts: DAuthClientOptions) {
     this.baseURL = normalizeBaseURL(opts.baseURL);
@@ -151,12 +153,26 @@ export class DAuthClient {
       headers,
       credentials: this.mode === "cookie" ? "include" : "omit",
     });
-    // 仅在确有可续期凭据时才 refresh，避免未登录时 me → 401 → refresh 二次空打
-    const canRefresh = !!(token && !this.apiKey) || this.hasRefreshCredential();
+    const text = await res.text();
+    let parsed: Envelope<T> | { code: string; message: string } | null = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+
+    const code = (parsed as { code?: string } | null)?.code;
+    // 只对「会话失效」续期，不能对登录密码错误（同为 401，但 code 是
+    // INVALID_CREDENTIALS）也刷新，否则一次错误登录会重放成两次。
+    //
+    // Cookie 模式的可续期凭据是 HttpOnly cookie，JS 读不到，不能因为
+    // localStorage 为空就认定「无法续期」——否则 access 到期后永远不会刷新。
+    const canRefresh =
+      !this.apiKey && (this.mode === "cookie" || !!token || this.hasRefreshCredential());
     if (
       res.status === 401 &&
+      code === "UNAUTHORIZED" &&
       retry &&
-      !this.apiKey &&
       canRefresh &&
       path !== "/v1/auth/refresh" &&
       path !== "/v1/auth/logout"
@@ -168,16 +184,9 @@ export class DAuthClient {
         this.clearTokens();
       }
     }
-    const text = await res.text();
-    let parsed: Envelope<T> | { code: string; message: string } | null = null;
-    try {
-      parsed = text ? JSON.parse(text) : null;
-    } catch {
-      parsed = null;
-    }
     if (!res.ok) {
       const err: ApiError = {
-        code: (parsed as { code?: string } | null)?.code ?? "HTTP_ERROR",
+        code: code ?? "HTTP_ERROR",
         message: (parsed as { message?: string } | null)?.message ?? res.statusText,
         status: res.status,
       };
@@ -275,7 +284,18 @@ export class DAuthClient {
     });
   }
 
-  async refresh() {
+  refresh() {
+    // 多个请求同时 401 时共用一个 refresh：服务端轮换是单次有效的，
+    // 并发调用会让除第一枚之外的 refresh 全部失败，进而误判为掉线。
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.doRefresh().finally(() => {
+        this.refreshPromise = null;
+      });
+    }
+    return this.refreshPromise;
+  }
+
+  private async doRefresh() {
     const refresh =
       typeof localStorage === "undefined" ? "" : localStorage.getItem(REFRESH_KEY) || "";
     const data = await this.request<TokenResult>(
