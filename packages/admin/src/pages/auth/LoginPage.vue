@@ -13,6 +13,10 @@ import AuthShell from "./AuthShell.vue";
 
 type LoginMode = "sms" | "password" | "wechat";
 
+// 微信扫码登录暂未实现（当前只是占位灰块，且前端从未调用 wechatQrStart），
+// 先隐藏入口避免误导用户。实现后把这里改成 true 即可恢复，无需改动模板。
+const WECHAT_LOGIN_ENABLED = false;
+
 const router = useRouter();
 const route = useRoute();
 const client = useAdminClient();
@@ -218,7 +222,7 @@ function switchMode(next: LoginMode) {
           </n-form-item>
         </n-form>
 
-        <div v-show="mode === 'wechat'" class="wechat-panel">
+        <div v-if="WECHAT_LOGIN_ENABLED" v-show="mode === 'wechat'" class="wechat-panel">
           <div class="qr-placeholder" aria-hidden="true" />
           <p class="qr-hint">请使用微信扫一扫登录</p>
         </div>
@@ -269,12 +273,13 @@ function switchMode(next: LoginMode) {
       <div class="alt-row">
         <template v-if="mode === 'sms'">
           <n-button text type="primary" @click="switchMode('password')">密码登录</n-button>
-          <n-button text type="primary" @click="switchMode('wechat')">微信登录</n-button>
+          <n-button v-if="WECHAT_LOGIN_ENABLED" text type="primary" @click="switchMode('wechat')">微信登录</n-button>
         </template>
         <template v-else-if="mode === 'password'">
           <n-button text type="primary" @click="switchMode('sms')">验证码登录</n-button>
-          <n-button text type="primary" @click="switchMode('wechat')">微信登录</n-button>
+          <n-button v-if="WECHAT_LOGIN_ENABLED" text type="primary" @click="switchMode('wechat')">微信登录</n-button>
         </template>
+        <!-- 微信模式下即使入口隐藏，仍保留回到另外两种方式的通道 -->
         <template v-else>
           <n-button text type="primary" @click="switchMode('sms')">验证码登录</n-button>
           <n-button text type="primary" @click="switchMode('password')">密码登录</n-button>
