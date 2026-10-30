@@ -40,7 +40,14 @@ type TokenResult struct {
 	RefreshToken string `json:"refresh_token"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
-	User         User   `json:"user"`
+	// IsNewUser 表示「本次请求刚刚创建了这个用户」，而不是「这个用户很新」。
+	// 业务方（如 d-camp）据此决定是否引导完善昵称/头像。
+	//
+	// 只有真正建号的登录路径才会是 true：短信登录首次建号、小程序登录首次建号、
+	// 邮箱注册。密码登录与续期永远不会建号，恒为 false——字段仍然返回，
+	// 免得调用方还要处理「字段缺失」与「false」两种写法。
+	IsNewUser bool `json:"is_new_user"`
+	User      User `json:"user"`
 }
 
 // Profile 是给业务系统看的用户资料。

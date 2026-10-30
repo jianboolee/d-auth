@@ -84,6 +84,9 @@ ctx := context.Background()
 
 // 1) 短信登录：拿到 d-auth 的 token 与用户（公开接口，不需要 key）
 tokens, err := auth.SMSLogin(ctx, phone, code)
+if tokens.IsNewUser {
+    // 本次登录刚建号，可以引导用户完善昵称/头像
+}
 
 // 2) 用 refresh token 续期（access 默认 15 分钟）
 tokens, err = auth.Refresh(ctx, tokens.RefreshToken)
@@ -92,11 +95,17 @@ defer auth.Logout(ctx, tokens.RefreshToken) // 登出：吊销会话
 // 3) 退出时也可幂等登出
 ```
 
+`TokenResult.IsNewUser` 表示**本次请求刚刚创建了这个用户**（不是「用户很新」）。
+只有短信首次登录、小程序首次登录、邮箱注册为 `true`；密码登录与 `Refresh` 恒为
+`false`，字段总会反序列化出来。别用昵称是否为空或 `CreatedAt` 去判断——建号时
+d-auth 会写默认昵称（微信 `"微信用户"`、短信为脱敏手机号）。
+
 小程序登录走 `WeChatMini`（需要 d-auth 后台已登记该小程序的 client_key 并配好
 AppID/AppSecret）：
 
 ```go
 tokens, err := auth.WeChatMini(ctx, "mp_dcamp", jsCode)
+// tokens.IsNewUser 为 true 表示这次登录刚创建账号，可据此触发新用户引导
 ```
 
 BFF 建议：d-auth 的 token **只存在你的后端**，用你自己签发的会话 id 索引；小程序只持

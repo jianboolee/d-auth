@@ -83,14 +83,21 @@ const auth = createDAuthClient({
   clientKey: "app_ios",
 });
 
-const { access_token, refresh_token, user } = await auth.smsLogin(phone, code);
+const { access_token, refresh_token, is_new_user, user } = await auth.smsLogin(phone, code);
 // 业务 API 请求头：Authorization: Bearer <access_token>
 ```
+
+`is_new_user` 表示**本次请求刚刚创建了这个用户**（不是「用户很新」）。只有短信首次登录、
+小程序首次登录、邮箱注册会为 `true`；密码登录与 `refresh()` 恒为 `false`。字段总是存在
+（false 也会返回），不要靠「字段缺失」判断。
+
+引导用户完善昵称/头像时只认这个标记——d-auth 建号时会写默认昵称
+（微信 `"微信用户"`、短信 `maskPhoneDisplay(phone)`），昵称为空不能作为判据。
 
 小程序：
 
 ```ts
-await auth.wechatMini("mp_xxx", wxLoginCode);
+const { is_new_user } = await auth.wechatMini("mp_xxx", wxLoginCode);
 ```
 
 ### 其它后端

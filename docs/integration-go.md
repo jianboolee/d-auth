@@ -85,12 +85,25 @@ DAUTH_API_KEY=sk-...                    # 控制台「API Keys」创建；只有
   "data": {
     "access_token": "eyJ...", "refresh_token": "...",
     "token_type": "Bearer", "expires_in": 900,
+    "is_new_user": true,
     "user": { "id": "…22位…", "nickname": "…", "roles": ["user"], "has_phone": true, "phone": "138****8000" }
   }
 }
 ```
 
 默认 access 1 小时、refresh 30 天。`data.user` 是**本人视角**（手机号/邮箱已脱敏）。
+
+**`is_new_user`：本次请求是否刚刚创建了该用户。**
+
+- 语义是「这次登录建了这个账号」，**不是**「这个用户创建时间很新」。判断依据是登录路径
+  在查找账号时是否走到了建号分支，与 `created_at` 无关——用户在别的端注册过、隔几天再来
+  这里登录，一定是 `false`。
+- 为 `true` 的路径：短信验证码登录首次建号、小程序登录首次建号、邮箱注册。
+- 恒为 `false`：密码登录（只校验已有账号，不建号）、`POST /v1/auth/refresh`（续期不是登录）。
+- 字段**总是返回**（false 也会出现），不要靠「字段缺失」判断。
+- 典型用法（d-camp 这类新用户引导）：`is_new_user === true` 时才把用户带到完善昵称/头像的页面。
+  不要再用「昵称是否为空」或「创建时间是否在 N 秒内」去推断——d-auth 建号时会给默认昵称
+  （微信登录 `"微信用户"`、短信登录 `maskPhoneDisplay(phone)` 形如 `138****8000`），昵称永远非空。
 
 **两种前端模式**：
 
@@ -409,12 +422,14 @@ tokens, err := auth.WeChatMini(ctx, "mp_dcamp", jsCode) // jsCode 来自 wx.logi
 ```
 
 d-auth 用这条 client 的小程序凭证换 openid；会话归属到该 client_key。
+小程序首次登录建号时，返回的 `is_new_user` 为 `true`，可作为新用户引导的触发条件。
 
 ## 七、刷新与登出
 
 - **刷新**：`POST /v1/auth/refresh`。token 模式带 `refresh_token`；cookie 模式由浏览器自动带上
   `dauth_refresh` cookie（Path=`/v1/auth`，业务系统收不到）。refresh 每次都会**轮换**，
-  新旧 token 单次有效。
+  新旧 token 单次有效。响应沿用同一套 token 结构，但 `is_new_user` 恒为 `false`——
+  续期不可能创建账号，登出/续期都不该触发新用户引导。
 - **前端续期姿势**：业务请求 401 时，向 d-auth 发一次 refresh（cookie 模式 `credentials: "include"`），
   拿到新 `dauth_access` cookie 后重试原请求即可，无需整页跳转。
 - **登出**：`POST /v1/auth/logout` 删掉 refresh 白名单项并清 cookie，幂等。已签发的 access token
