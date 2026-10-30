@@ -43,7 +43,25 @@ make stop        # 停掉 8680-8682 上的残留进程与 dev 容器栈，不动
 
 开发环境短信/邮件不真发，验证码会打印到 API 服务终端（不会出现在 HTTP 响应里）。用 `13800000000` 首次登录会成为 `superadmin`。
 
-## 部署（与 d-specs 相同形态）
+## 部署
+
+**默认走裸机方案**（本地构建二进制 + 静态文件，上传到服务器用 systemd + 系统 nginx 运行）。
+Docker 方案完整保留，两种随时可切。详细说明见 [deploy/baremetal/README.md](deploy/baremetal/README.md)，
+踩坑记录与上线 checklist 见 [deploy/baremetal/PITFALLS.md](deploy/baremetal/PITFALLS.md)。
+
+```bash
+make bare-check      # 预检服务器（不改动）
+make bare-build      # 只构建 dist/d-auth-bare-<tag>.tar.gz
+make bare-deploy     # 构建并部署到 root@47.95.176.70
+make bare-rollback   # 切回 docker 部署
+```
+
+裸机方案要点：nginx 监听 **8680**（与容器映射出来的宿主端口一致），`/v1` `/health`
+`/static` 反代到 `127.0.0.1:8681`；持久化状态只有 `/opt/d-auth/data/`（JWT 私钥 +
+mock 上传文件）；环境变量共用同一份 `deploy/.env.prod`。切换时 `install.sh` /
+`rollback-to-docker.sh` 会自动搬运 `jwt-private.pem`，避免旧 token 失效。
+
+### Docker 方案（保留）
 
 全栈单镜像：nginx:80 + Go API:8681。宿主机映射 **8680:80**。
 

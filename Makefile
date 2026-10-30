@@ -1,6 +1,7 @@
 .PHONY: help install api web migrate up down stop tidy \
 	docker-build docker-release docker-push docker-run nginx-push \
-	docker-dev docker-dev-down docker-dev-logs docker-dev-build
+	docker-dev docker-dev-down docker-dev-logs docker-dev-build \
+	bare-build bare-deploy bare-check bare-rollback
 
 help:
 	@echo "d-auth 常用命令"
@@ -17,6 +18,12 @@ help:
 	@echo "  make docker-push    构建 amd64 并推送 $(REGISTRY):{$(RELEASE_TAG),latest}"
 	@echo "  make docker-run     用发布镜像本地试跑 :$(APP_PORT)"
 	@echo "  make nginx-push     推送 deploy/nginx/*.conf 到服务器并 reload nginx"
+	@echo ""
+	@echo "  裸机部署（优先方案，见 deploy/baremetal/README.md）"
+	@echo "  make bare-build     构建 dist/d-auth-bare-<tag>.tar.gz（不产镜像）"
+	@echo "  make bare-deploy    构建并部署到 $(PROD_SSH)（systemd + 系统 nginx）"
+	@echo "  make bare-check     只预检服务器，不改动"
+	@echo "  make bare-rollback  从裸机部署切回 docker 部署"
 	@echo ""
 	@echo "不想用热重载时直接跑：cd api && HTTP_PORT=$(API_PORT) go run ./cmd/server"
 	@echo ""
@@ -47,6 +54,13 @@ NGINX_SERVER ?=
 NGINX_PORT ?= 22
 # 与 api/Dockerfile.dev 的 AIR_VERSION 保持一致
 AIR_VERSION ?= v1.66.0
+
+# ---------- 裸机部署（deploy/baremetal/）----------
+# 直接上传二进制 + 静态文件，用 systemd + 系统 nginx 运行。与 docker 方案互斥
+# （都占用 8680），但共用同一份 deploy/.env.prod，可随时来回切。
+PROD_SSH ?= root@47.95.176.70
+PROD_PORT ?= 22
+BARE_GOARCH ?= amd64
 
 # 端口预检：被占用时打印占用它的进程（PID + 命令行）并以非零退出。
 # 不这么做的话，vite 只会抛一句 Port already in use，不告诉你是谁占着；
@@ -189,3 +203,22 @@ docker-dev-build:
 
 nginx-push:
 	@SERVER=$(NGINX_SERVER) PORT=$(NGINX_PORT) deploy/nginx/upload.sh
+
+# ---------- 裸机部署 ----------
+# 细节见 deploy/baremetal/README.md。产物与镜像同源：前端来自同一套 npm 构建，
+# 后端用同样的 CGO_ENABLED=0 交叉编译参数，因此两套方案的运行时行为一致。
+bare-build:
+	@BARE_GOARCH=$(BARE_GOARCH) TAG=$(RELEASE_TAG) deploy/baremetal/build.sh
+
+bare-deploy:
+	@PROD_SSH=$(PROD_SSH) PROD_PORT=$(PROD_PORT) TAG=$(RELEASE_TAG) \
+		BARE_GOARCH=$(BARE_GOARCH) deploy/baremetal/deploy.sh
+
+bare-check:
+	@PROD_SSH=$(PROD_SSH) PROD_PORT=$(PROD_PORT) deploy/baremetal/deploy.sh --check
+
+bare-rollback:
+	@echo "在 $(PROD_SSH) 上执行 rollback-to-docker.sh"
+	scp -P $(PROD_PORT) deploy/baremetal/rollback-to-docker.sh \
+		$(PROD_SSH):/tmp/rollback-to-docker.sh
+	ssh -p $(PROD_PORT) $(PROD_SSH) 'bash /tmp/rollback-to-docker.sh'
