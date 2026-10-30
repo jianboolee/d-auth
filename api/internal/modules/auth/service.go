@@ -351,19 +351,21 @@ func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta
 	if err != nil {
 		return nil, err
 	}
-	if secretPlain == "" && s.cfg.IsDev() {
+	// 按这个 client 的凭据选实现（2026-10-31 统一到数据库后）：
+	//   配了 appID + secret → 真实微信
+	//   没配              → Mock（本地开发、测试、尚未申请凭据的部署）
+	//
+	// 原来这里有一道 `if !IsDev() && 凭据为空 → WECHAT_NOT_CONFIGURED` 的早退。
+	// 它现在与「按 client 判断」冲突：Mock 已经是**每个 client 的降级路径**，
+	// 不再是"全局部署模式"，所以没配凭据不该报错，该降级。
+	// 这也修掉了一个生产问题：生产 APP_ENV=production、而 mp_dcamp 没配凭据，
+	// 旧逻辑会直接 400，登录整条路径不可用。
+	wx := s.wxResolver.For(cl.WechatAppID, secretPlain)
+	// 走 Mock 时给 secret 一个非空占位：Mock 不看它，但空串会让日志里的调用
+	// 看起来像配置错误。真实微信那条路上 secret 一定非空（For 的判断条件）。
+	if secretPlain == "" {
 		secretPlain = "mock"
 	}
-	// 凭据缺失时，请求会带着空 appid/secret 打到微信、失败后统一报「小程序登录
-	// 失败」，看不出是没配置还是微信侧报错。非 dev 环境先在这里明确挡下。
-	// dev 保留上面的 mock 回退，否则本地不带真凭据就跑不通小程序登录。
-	if !s.cfg.IsDev() && (cl.WechatAppID == "" || secretPlain == "") {
-		return nil, apperr.New(apperr.ErrInvalidArgument, "WECHAT_NOT_CONFIGURED",
-			"该小程序未配置微信凭据（AppID / AppSecret），请先在后台补齐")
-	}
-	// 按这个 client 的凭据选实现：配了就走真实微信，没配则降级到 Mock。
-	// 这是 2026-10-31 把凭据从环境变量搬进 auth_clients 之后的判断点。
-	wx := s.wxResolver.For(cl.WechatAppID, secretPlain)
 	info, err := wx.MiniCode2Session(ctx, cl.WechatAppID, secretPlain, jsCode)
 	if err != nil {
 		return nil, apperr.New(err, "WECHAT_FAILED", "小程序登录失败")

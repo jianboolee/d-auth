@@ -124,7 +124,16 @@ func makeMiniClient(t *testing.T, svc *Service, st *store.Store, appID, appSecre
 
 // 非 dev 环境下凭据缺失要明确报「未配置」，而不是把空 appid 打到微信再报
 // 一句笼统的「小程序登录失败」——那样分不清是配置问题还是微信侧报错。
-func TestWeChatMiniRejectsMissingCredentials(t *testing.T) {
+// 凭据缺失时**降级到 Mock**，不报错（2026-10-31 改）。
+//
+// 语义变了：原来这里是「非 dev 环境 + 凭据缺失 → WECHAT_NOT_CONFIGURED」。
+// 凭据搬进 auth_clients 之后，Mock 变成**每个 client 的降级路径**而不是
+// "全局部署模式"，所以没配凭据就该降级。
+//
+// 这个改动修掉了一个真实的生产故障：生产 APP_ENV=production、而 mp_dcamp
+// 没配凭据，旧逻辑直接 400，整条小程序登录路径不可用。
+func TestWeChatMiniFallsBackToMockWhenCredentialsMissing(t *testing.T) {
+	// 关键：用 production 环境跑 —— 这正是线上配置。
 	svc, st := newWechatTestService(t, "production")
 
 	cases := []struct {
@@ -140,15 +149,18 @@ func TestWeChatMiniRejectsMissingCredentials(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cl := makeMiniClient(t, svc, st, tc.appID, tc.appSecret)
 			_, err := svc.WeChatMini(context.Background(), cl.ClientKey, "js-code", LoginMeta{})
-			if code := wechatCodeOf(err); code != "WECHAT_NOT_CONFIGURED" {
-				t.Fatalf("want WECHAT_NOT_CONFIGURED, got %q (err=%v)", code, err)
+			// 凭据不全 → Mock 返回身份 → 走到 issueToken。
+			// sessions 为 nil 时会在那里报错（本用例不需要 Redis），
+			// 但**绝不能**是 WECHAT_NOT_CONFIGURED —— 那说明还在走旧逻辑。
+			if code := wechatCodeOf(err); code == "WECHAT_NOT_CONFIGURED" {
+				t.Fatalf("凭据缺失应降级到 Mock，不该报 WECHAT_NOT_CONFIGURED (err=%v)", err)
 			}
 		})
 	}
 }
 
-// dev 环境保留 mock 回退：本地不带真凭据也要能跑通小程序登录。
-// 这条守住上面那个检查不要把本地联调一起挡掉。
+// dev 环境同样降级（这条行为没变，但原因变了：
+// 不再依赖 IsDev 判断，而是统一按 client 凭据说话）。
 func TestWeChatMiniAllowsMissingCredentialsInDev(t *testing.T) {
 	svc, st := newWechatTestService(t, "dev")
 	cl := makeMiniClient(t, svc, st, "", "")
