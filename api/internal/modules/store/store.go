@@ -146,6 +146,31 @@ func (s *Store) FindIdentity(typ, identifier string) (*models.Identity, error) {
 	return &ident, nil
 }
 
+// FindWechat 按微信身份找账号。
+//
+// ## 两条路径与它们的优先级（2026-10-31 明确）
+//
+//  1. **有 unionid 时优先按它查** —— unionid 是"同一个人在所有微信应用下"的
+//     唯一标识，一条命中就意味着这是同一个用户，不必再看 openid。
+//     这是多小程序 / 小程序 + 公众号互通的唯一正确做法。
+//  2. **没有 unionid 时按 `appID:openID` 查** —— 这是**单小程序场景的常态**。
+//     微信只在账号绑定了开放平台时才返回 unionid；本产品当前没有开放平台账号，
+//     所以线上永远走这一条。openid 名不副实（其实是"用户+AppID"的组合标识），
+//     所以必须把 appID 拼进去：只存裸 openid 会让不同小程序的同名 openid
+//     撞到同一条 identity 上，那是两个不同的人。
+//
+// ## 多小程序分账号是**有意的取舍**（2026-10-31 确认）
+//
+// 用户先在没有开放平台时接入登录（身份里 union_id 为空）→ 后来绑了开放平台、
+// 用同一个人再登录（这次带了 unionid）时，第一条路径查不到（旧身份没有 unionid），
+// 会新建一个账号 —— 同一个人变成两个。
+//
+// 这一条**不修**：产品上接受"同一个用户在不同小程序下是不同账号"。
+// 真要合并需要"按 openid 回填 unionid"的迁移策略，而它涉及历史身份的归属判断，
+// 在没有真实多端数据之前做出任何选择都是猜。等真有多端需求时再做，
+// 那时才有数据能验证策略对不对。
+//
+// 换句话说：这里不是"漏了"，是"暂时不做"。
 func (s *Store) FindWechat(unionID, appID, openID string) (*models.Identity, error) {
 	if unionID != "" {
 		var ident models.Identity

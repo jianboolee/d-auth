@@ -427,7 +427,11 @@ func (s *Service) MockWeChatConfirm(ctx context.Context, ticket, openID string) 
 	if openID == "" {
 		openID = "mock-open-" + ticket[:8]
 	}
-	info := wechat.UserInfo{OpenID: openID, UnionID: "mock-union", AppID: "mock-web"}
+	// UnionID 留空（2026-10-31 修）：原来恒为 "mock-union"，而 FindWechat 优先按
+	// union_id 查 —— 于是所有扫码登录都会命中第一条该 union_id 的身份，
+	// 全平台共用同一个账号。openid 已经按 ticket 派生、足以区分不同人，
+	// 走 appID:openID 这条路径就对了（也与"无开放平台账号时微信不返回 unionid"一致）。
+	info := wechat.UserInfo{OpenID: openID, AppID: "mock-web"}
 	// 扫码登录的建号发生在回调里，签发 token 时已隔一次请求，无法判断，见 WeChatQRStatus。
 	user, _, err := s.upsertWechatUser(models.IdentityWechatOpen, info)
 	if err != nil {
