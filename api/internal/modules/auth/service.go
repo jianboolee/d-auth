@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -39,7 +38,8 @@ type Service struct {
 	sms      sms.Sender
 	mail     mailer.Sender
 	jwt      *tokens.Manager
-	wechat   wechat.Client
+	// wxResolver 按 client 的凭据选实现（真实微信 / Mock）—— 见 wechat.Resolver。
+	wxResolver *wechat.Resolver
 	rdb      *redis.Client
 	sessions *sessionstore.Store
 	// cache 缓存组装好的用户资料。登录会更新 last_login_at、提升超管会改角色，
@@ -47,8 +47,8 @@ type Service struct {
 	cache *usercache.Cache
 }
 
-func New(cfg *config.Config, st *store.Store, c *codes.Service, smsSender sms.Sender, mailSender mailer.Sender, jwt *tokens.Manager, wx wechat.Client, rdb *redis.Client, sessions *sessionstore.Store, cache *usercache.Cache) *Service {
-	return &Service{cfg: cfg, store: st, codes: c, sms: smsSender, mail: mailSender, jwt: jwt, wechat: wx, rdb: rdb, sessions: sessions, cache: cache}
+func New(cfg *config.Config, st *store.Store, c *codes.Service, smsSender sms.Sender, mailSender mailer.Sender, jwt *tokens.Manager, wxResolver *wechat.Resolver, rdb *redis.Client, sessions *sessionstore.Store, cache *usercache.Cache) *Service {
+	return &Service{cfg: cfg, store: st, codes: c, sms: smsSender, mail: mailSender, jwt: jwt, wxResolver: wxResolver, rdb: rdb, sessions: sessions, cache: cache}
 }
 
 type LoginMeta struct {
@@ -333,63 +333,14 @@ func (s *Service) RevokeSession(refreshToken string) error {
 	return s.sessions.RevokeByToken(context.Background(), refreshToken)
 }
 
-func (s *Service) WeChatQRStart(ctx context.Context) (map[string]any, error) {
-	ticket := idgen.NewString()
-	payload := map[string]any{"status": "pending"}
-	b, _ := json.Marshal(payload)
-	if err := s.rdb.Set(ctx, "wxqr:"+ticket, b, 10*time.Minute).Err(); err != nil {
-		return nil, err
-	}
-	return map[string]any{
-		"ticket": ticket,
-		"qr_url": s.wechat.WebQRAuthorizeURL(ticket),
-	}, nil
-}
-
-func (s *Service) WeChatQRStatus(ctx context.Context, ticket string) (map[string]any, *dto.TokenResult, error) {
-	raw, err := s.rdb.Get(ctx, "wxqr:"+ticket).Bytes()
-	if err != nil {
-		return nil, nil, apperr.New(apperr.ErrNotFound, "QR_EXPIRED", "二维码已过期")
-	}
-	var payload map[string]any
-	_ = json.Unmarshal(raw, &payload)
-	status, _ := payload["status"].(string)
-	if status != "confirmed" {
-		return payload, nil, nil
-	}
-	userID, _ := payload["user_id"].(string)
-	uid, err := idgen.ParseUserID(userID)
-	if err != nil {
-		return payload, nil, nil
-	}
-	user, err := s.store.UserByID(uid)
-	if err != nil {
-		return nil, nil, err
-	}
-	// 扫码流程里账号是在 WeChatCallback 建的，到这里已经隔了一次请求，
-	// 「本次请求是否建号」无从判断。这条路径属于控制台登录、不承载新用户引导，
-	// 因此固定为 false，而不是拿创建时间猜。
-	tokens, err := s.issueToken(user, LoginMeta{ClientKey: models.ClientKeyConsole}, false)
-	if err != nil {
-		return nil, nil, err
-	}
-	_ = s.rdb.Del(ctx, "wxqr:"+ticket).Err()
-	return map[string]any{"status": "confirmed"}, tokens, nil
-}
-
-func (s *Service) WeChatCallback(ctx context.Context, code, ticket string, meta LoginMeta) error {
-	info, err := s.wechat.WebCallback(ctx, code)
-	if err != nil {
-		return apperr.New(err, "WECHAT_FAILED", "微信授权失败")
-	}
-	// 扫码登录的建号发生在回调里，签发 token 时已隔一次请求，无法判断，见 WeChatQRStatus。
-	user, _, err := s.upsertWechatUser(models.IdentityWechatOpen, info)
-	if err != nil {
-		return err
-	}
-	payload, _ := json.Marshal(map[string]any{"status": "confirmed", "user_id": idgen.FormatUserID(user.ID)})
-	return s.rdb.Set(ctx, "wxqr:"+ticket, payload, 5*time.Minute).Err()
-}
+// 微信扫码登录（WeChatQRStart / WeChatQRStatus / WeChatCallback / MockWeChatConfirm）
+// 已于 2026-10-31 整组删除。理由：
+//   - 前端从未接通：LoginPage 里只有一块占位灰块，没有任何地方调 wechatQrStart；
+//   - 生产从未配置 web 应用的 AppID/Secret（两个环境变量都是空值）；
+//   - 它带一整套 Mock/Live 双实现、Redis ticket 状态机与三条路由，
+//     却一天都没有对外可用过 —— 留着只是让人误以为有这个能力。
+//
+// 现在微信登录只剩**小程序登录**一条路径（WeChatMini），凭据按 client 从库里读。
 
 func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta LoginMeta) (*dto.TokenResult, error) {
 	cl, err := s.store.ClientByKey(clientKey)
@@ -410,7 +361,10 @@ func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta
 		return nil, apperr.New(apperr.ErrInvalidArgument, "WECHAT_NOT_CONFIGURED",
 			"该小程序未配置微信凭据（AppID / AppSecret），请先在后台补齐")
 	}
-	info, err := s.wechat.MiniCode2Session(ctx, cl.WechatAppID, secretPlain, jsCode)
+	// 按这个 client 的凭据选实现：配了就走真实微信，没配则降级到 Mock。
+	// 这是 2026-10-31 把凭据从环境变量搬进 auth_clients 之后的判断点。
+	wx := s.wxResolver.For(cl.WechatAppID, secretPlain)
+	info, err := wx.MiniCode2Session(ctx, cl.WechatAppID, secretPlain, jsCode)
 	if err != nil {
 		return nil, apperr.New(err, "WECHAT_FAILED", "小程序登录失败")
 	}
@@ -421,24 +375,6 @@ func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta
 	}
 	meta.ClientKey = clientKey
 	return s.issueToken(user, meta, created)
-}
-
-func (s *Service) MockWeChatConfirm(ctx context.Context, ticket, openID string) error {
-	if openID == "" {
-		openID = "mock-open-" + ticket[:8]
-	}
-	// UnionID 留空（2026-10-31 修）：原来恒为 "mock-union"，而 FindWechat 优先按
-	// union_id 查 —— 于是所有扫码登录都会命中第一条该 union_id 的身份，
-	// 全平台共用同一个账号。openid 已经按 ticket 派生、足以区分不同人，
-	// 走 appID:openID 这条路径就对了（也与"无开放平台账号时微信不返回 unionid"一致）。
-	info := wechat.UserInfo{OpenID: openID, AppID: "mock-web"}
-	// 扫码登录的建号发生在回调里，签发 token 时已隔一次请求，无法判断，见 WeChatQRStatus。
-	user, _, err := s.upsertWechatUser(models.IdentityWechatOpen, info)
-	if err != nil {
-		return err
-	}
-	payload, _ := json.Marshal(map[string]any{"status": "confirmed", "user_id": idgen.FormatUserID(user.ID)})
-	return s.rdb.Set(ctx, "wxqr:"+ticket, payload, 5*time.Minute).Err()
 }
 
 func (s *Service) JWKS() map[string]any { return s.jwt.JWKS() }

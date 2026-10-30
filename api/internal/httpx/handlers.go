@@ -275,39 +275,6 @@ func (h *Handlers) Logout(c *gin.Context) {
 	response.OK(c, gin.H{"ok": true})
 }
 
-func (h *Handlers) WeChatQRStart(c *gin.Context) {
-	data, err := h.Auth.WeChatQRStart(c)
-	if err != nil {
-		WriteError(c, err)
-		return
-	}
-	response.OK(c, data)
-}
-
-func (h *Handlers) WeChatQRStatus(c *gin.Context) {
-	payload, tokens, err := h.Auth.WeChatQRStatus(c, c.Query("ticket"))
-	if err != nil {
-		WriteError(c, err)
-		return
-	}
-	if tokens != nil {
-		h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
-		response.OK(c, gin.H{"status": "confirmed", "tokens": tokens})
-		return
-	}
-	response.OK(c, payload)
-}
-
-func (h *Handlers) WeChatCallback(c *gin.Context) {
-	code := c.Query("code")
-	state := c.Query("state")
-	if err := h.Auth.WeChatCallback(c, code, state, h.meta(c)); err != nil {
-		WriteError(c, err)
-		return
-	}
-	c.Redirect(http.StatusFound, h.Cfg.WebOrigin+"/login?wechat=ok")
-}
-
 type miniReq struct {
 	ClientKey string `json:"client_key"`
 	Code      string `json:"code"`
@@ -325,29 +292,6 @@ func (h *Handlers) WeChatMini(c *gin.Context) {
 	}
 	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
 	response.OK(c, tokens)
-}
-
-type mockScanReq struct {
-	Ticket string `json:"ticket"`
-	OpenID string `json:"openid"`
-}
-
-func (h *Handlers) WeChatMockScan(c *gin.Context) {
-	if !h.Cfg.IsDev() {
-		response.Fail(c, http.StatusForbidden, "FORBIDDEN", "仅开发环境可用")
-		return
-	}
-	var req mockScanReq
-	if c.Request.Method == http.MethodGet {
-		req.Ticket = c.Query("ticket")
-	} else if !response.BindJSON(c, &req) {
-		return
-	}
-	if err := h.Auth.MockWeChatConfirm(c, req.Ticket, req.OpenID); err != nil {
-		WriteError(c, err)
-		return
-	}
-	response.OK(c, gin.H{"ok": true})
 }
 
 func (h *Handlers) Me(c *gin.Context) {

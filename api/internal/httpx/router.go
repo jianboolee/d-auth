@@ -60,12 +60,11 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			// 但未登录也必须可调用（幂等退出），所以用 OptionalAuth。
 			authg.POST("/refresh", OptionalAuth(cfg, authSvc), h.Refresh)
 			authg.POST("/logout", OptionalAuth(cfg, authSvc), h.Logout)
-			authg.POST("/wechat/qr/start", h.WeChatQRStart)
-			authg.GET("/wechat/qr/status", h.WeChatQRStatus)
-			authg.GET("/wechat/callback", h.WeChatCallback)
+			// 微信小程序登录（唯一在用的微信登录方式）。
+			// 扫码登录（qr/start、qr/status、callback、mock-scan）已于 2026-10-31 删除：
+			// 前端从未接通过（LoginPage 里只有占位灰块，没有任何地方调 wechatQrStart），
+			// 生产也没配过 web 应用的 AppID/Secret —— 那是一套从未上线的半成品。
 			authg.POST("/wechat/mini", h.WeChatMini)
-			authg.GET("/wechat/mock-scan", h.WeChatMockScan)
-			authg.POST("/wechat/mock-scan", h.WeChatMockScan)
 		}
 
 			me := v1.Group("")

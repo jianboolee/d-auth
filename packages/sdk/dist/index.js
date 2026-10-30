@@ -240,11 +240,6 @@ export class DAuthClient {
             this.clearTokens();
         }
     }
-    wechatQrStart() {
-        return this.request("/v1/auth/wechat/qr/start", {
-            method: "POST",
-        });
-    }
     /**
      * 注销当前账号（不可逆）。confirm 必须为「确认注销」，服务端会校验。
      *
@@ -261,18 +256,6 @@ export class DAuthClient {
         });
         this.clearTokens();
         return res;
-    }
-    async wechatQrStatus(ticket) {
-        const data = await this.request(`/v1/auth/wechat/qr/status?ticket=${encodeURIComponent(ticket)}`);
-        if (data.tokens)
-            this.persistTokens(data.tokens);
-        return data;
-    }
-    wechatMockScan(ticket) {
-        return this.request("/v1/auth/wechat/mock-scan", {
-            method: "POST",
-            body: JSON.stringify({ ticket }),
-        });
     }
     async wechatMini(clientKey, code) {
         const data = await this.request("/v1/auth/wechat/mini", {

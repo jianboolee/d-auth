@@ -71,12 +71,10 @@ func New(cfg *config.Config) (*gin.Engine, error) {
 	} else {
 		slog.Warn("using local mock OSS")
 	}
-	var wx wechat.Client = &wechat.Mock{AppID: "mock-web"}
-	if cfg.WeChatWebAppID != "" && cfg.WeChatWebAppSecret != "" {
-		wx = &wechat.Live{AppID: cfg.WeChatWebAppID, AppSecret: cfg.WeChatWebAppSecret, RedirectURL: cfg.WeChatRedirectURL}
-	} else {
-		slog.Warn("using mock wechat client")
-	}
+	// 微信客户端不再按环境变量二选一（2026-10-31）：
+	// 凭据在 auth_clients 表里、每个应用一份，配了的走真实微信、没配的降级 Mock。
+	// 所以这里只造一个 Resolver，判断推迟到「真的要用某个 client 登录」那一刻。
+	wxResolver := wechat.NewResolver()
 
 	st := store.New(db)
 	userCache := usercache.New(redis, cfg.UserCacheTTL)
@@ -95,7 +93,7 @@ func New(cfg *config.Config) (*gin.Engine, error) {
 	// refresh token 白名单（会话状态）存 Redis。fail-closed：Redis 不可用时
 	// 登录/续期直接失败，这与 usercache 的 fail-open 不同（那是可选缓存）。
 	sessionStore := sessionstore.New(redis, cfg.JWTRefreshTTL)
-	authSvc := auth.New(cfg, st, codeSvc, smsSender, mailSender, jwt, wx, redis, sessionStore, userCache)
+	authSvc := auth.New(cfg, st, codeSvc, smsSender, mailSender, jwt, wxResolver, redis, sessionStore, userCache)
 	userSvc := usersvc.New(cfg, st, codeSvc, oss, authSvc, userCache)
 	adminSvc := admin.New(cfg, st, sessionStore, userCache)
 	legalSvc := legal.New(st)

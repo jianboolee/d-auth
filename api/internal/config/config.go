@@ -96,9 +96,11 @@ type Config struct {
 	// OSSAvatarSuffix 是头像 URL 末尾统一追加的图片处理后缀，例如阿里云 360x360 正方形裁剪。
 	OSSAvatarSuffix string
 
-	WeChatWebAppID     string
-	WeChatWebAppSecret string
-	WeChatRedirectURL  string
+	// 微信凭据**不在 Config 里**（2026-10-31 迁走）：
+	// 每个 auth_clients 行自带 wechat_app_id / wechat_app_secret_enc，
+	// 由 auth.Service 按 client 读取。这里原来有三个全局字段
+	// （WeChatWebAppID / Secret / RedirectURL），只为扫码登录服务 ——
+	// 那套流程已删除，凭据也早已在库里，留着的只是噪音。
 }
 
 func Load() *Config {
@@ -200,9 +202,6 @@ func Load() *Config {
 		OSSCDNBase:               strings.TrimRight(env("DAUTH_OSS_CDN_BASE", "http://localhost:8682/static"), "/"),
 		OSSRootDir:               ossRootDir,
 		OSSAvatarSuffix:          ossAvatarSuffix,
-		WeChatWebAppID:           env("DAUTH_WECHAT_WEB_APP_ID", ""),
-		WeChatWebAppSecret:       env("DAUTH_WECHAT_WEB_APP_SECRET", ""),
-		WeChatRedirectURL:        env("DAUTH_WECHAT_REDIRECT_URL", strings.TrimRight(publicURL, "/")+"/v1/auth/wechat/callback"),
 	}
 }
 

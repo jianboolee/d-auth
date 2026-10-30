@@ -11,11 +11,7 @@ import { isRateLimited } from "../../ratelimit";
 import { errMessage } from "../../labels";
 import AuthShell from "./AuthShell.vue";
 
-type LoginMode = "sms" | "password" | "wechat";
-
-// 微信扫码登录暂未实现（当前只是占位灰块，且前端从未调用 wechatQrStart），
-// 先隐藏入口避免误导用户。实现后把这里改成 true 即可恢复，无需改动模板。
-const WECHAT_LOGIN_ENABLED = false;
+type LoginMode = "sms" | "password";
 
 const router = useRouter();
 const route = useRoute();
@@ -222,13 +218,9 @@ function switchMode(next: LoginMode) {
           </n-form-item>
         </n-form>
 
-        <div v-if="WECHAT_LOGIN_ENABLED" v-show="mode === 'wechat'" class="wechat-panel">
-          <div class="qr-placeholder" aria-hidden="true" />
-          <p class="qr-hint">请使用微信扫一扫登录</p>
-        </div>
       </div>
 
-      <p v-if="mode !== 'wechat'" class="agree">
+      <p class="agree">
         注册登录即代表已阅读并同意我们的
         <a :href="paths.terms()" target="_blank" rel="noopener noreferrer">用户协议</a>
         与
@@ -237,7 +229,7 @@ function switchMode(next: LoginMode) {
 
       <p class="tip" :class="tip ? tipKind : 'empty'">{{ tip || "\u00a0" }}</p>
 
-      <div v-if="mode !== 'wechat'" class="primary-action">
+      <div class="primary-action">
         <n-button
           v-if="mode === 'sms'"
           type="primary"
@@ -273,16 +265,9 @@ function switchMode(next: LoginMode) {
       <div class="alt-row">
         <template v-if="mode === 'sms'">
           <n-button text type="primary" @click="switchMode('password')">密码登录</n-button>
-          <n-button v-if="WECHAT_LOGIN_ENABLED" text type="primary" @click="switchMode('wechat')">微信登录</n-button>
         </template>
         <template v-else-if="mode === 'password'">
           <n-button text type="primary" @click="switchMode('sms')">验证码登录</n-button>
-          <n-button v-if="WECHAT_LOGIN_ENABLED" text type="primary" @click="switchMode('wechat')">微信登录</n-button>
-        </template>
-        <!-- 微信模式下即使入口隐藏，仍保留回到另外两种方式的通道 -->
-        <template v-else>
-          <n-button text type="primary" @click="switchMode('sms')">验证码登录</n-button>
-          <n-button text type="primary" @click="switchMode('password')">密码登录</n-button>
         </template>
       </div>
     </div>
@@ -293,8 +278,8 @@ function switchMode(next: LoginMode) {
 .login-body {
   display: flex;
   flex-direction: column;
-  /* 三种模式内容高度不同，卡片又是垂直居中，会导致切换时整卡（含 logo）上下移动。
-     锁定为最高模式（密码登录）的高度，使卡片等高、logo 位置稳定。 */
+  /* 两种模式内容高度不同，卡片又是垂直居中，会导致切换时整卡（含 logo）上下移动。
+     锁定为较高模式（密码登录）的高度，使卡片等高、logo 位置稳定。 */
   min-height: 330px;
 }
 .mode-panel {
@@ -309,25 +294,6 @@ function switchMode(next: LoginMode) {
   border-right: 1px solid var(--dauth-border, #ececec);
   margin-right: 8px;
   line-height: 1;
-}
-.wechat-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 0 8px;
-}
-.qr-placeholder {
-  width: 128px;
-  height: 128px;
-  border-radius: 12px;
-  background: #e8e8e8;
-}
-.qr-hint {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--dauth-text-secondary, #6b6b6b);
 }
 .agree {
   margin: 16px 0 0;

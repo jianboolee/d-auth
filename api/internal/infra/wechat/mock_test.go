@@ -17,7 +17,7 @@ import (
 // 走 appID:openID 路径；只有显式 `union:<标识>` 前缀才派生出稳定 unionid，
 // 用于模拟"同一用户跨多端"。
 func TestMockMiniIdentity(t *testing.T) {
-	m := &Mock{AppID: "ignored"}
+	m := &Mock{}
 
 	t.Run("默认不给 unionid，每个 code 是独立的人", func(t *testing.T) {
 		a, err := m.MiniCode2Session(context.Background(), "app-a", "", "code-1")
@@ -62,25 +62,4 @@ func TestMockMiniIdentity(t *testing.T) {
 			t.Fatalf("union: 后面为空时不该派生 unionid，实际 %q", got.UnionID)
 		}
 	})
-}
-
-// 扫码登录（WebCallback）同一套规则。
-func TestMockWebCallbackIdentity(t *testing.T) {
-	m := &Mock{AppID: "web-app"}
-
-	plain, err := m.WebCallback(context.Background(), "scan-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plain.UnionID != "" {
-		t.Fatalf("默认不该有 unionid，实际 %q", plain.UnionID)
-	}
-	if plain.AppID != "web-app" {
-		t.Fatalf("appID 应原样带回，实际 %q", plain.AppID)
-	}
-
-	linked, _ := m.WebCallback(context.Background(), "union:x-1")
-	if linked.UnionID != "mock-union-x-1" {
-		t.Fatalf("union 前缀应派生 mock-union-x-1，实际 %q", linked.UnionID)
-	}
 }

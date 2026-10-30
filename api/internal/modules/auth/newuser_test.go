@@ -75,7 +75,7 @@ func newLoginTestService(t *testing.T) (*Service, *codes.Service) {
 		store:    st,
 		codes:    codeSvc,
 		jwt:      jwtMgr,
-		wechat:   &mockMini{},
+		wxResolver: wechat.NewFixedResolver(&mockMini{}),
 		rdb:      rdb,
 		sessions: sessionstore.New(rdb, cfg.JWTRefreshTTL),
 		// cache 留空：Cache 的 nil 接收者全程降级为「不命中」，测试不关心缓存。
@@ -90,12 +90,6 @@ func newLoginTestService(t *testing.T) (*Service, *codes.Service) {
 // 这里按 AppID 给出稳定的 openid，并让 UnionID 为空——查找走
 // 「appID:openID」这条与用例一一对应的路径。
 type mockMini struct{}
-
-func (mockMini) WebQRAuthorizeURL(state string) string { return "https://example.invalid/qr?state=" + state }
-
-func (mockMini) WebCallback(context.Context, string) (wechat.UserInfo, error) {
-	return wechat.UserInfo{}, nil
-}
 
 func (mockMini) MiniCode2Session(_ context.Context, appID, _ string, jsCode string) (wechat.UserInfo, error) {
 	return wechat.UserInfo{OpenID: "openid-" + jsCode, AppID: appID}, nil

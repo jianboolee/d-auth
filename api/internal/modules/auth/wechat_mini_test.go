@@ -67,7 +67,9 @@ func newWechatTestService(t *testing.T, env string) (*Service, *store.Store) {
 		cfg:    cfg,
 		store:  st,
 		jwt:    jwtMgr,
-		wechat: &wechat.Mock{AppID: "mock-mini"},
+		// 这里的用例只验证「凭据缺失时提前报错」等早退路径，
+		// 不会真的调到微信 —— 给一个固定 Resolver 即可。
+		wxResolver: wechat.NewFixedResolver(&wechat.Mock{}),
 	}
 	if addr := os.Getenv("REDIS_TEST_ADDR"); addr != "" {
 		rdb := redis.NewClient(&redis.Options{Addr: addr})

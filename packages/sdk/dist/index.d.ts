@@ -114,10 +114,6 @@ export declare class DAuthClient {
     refresh(): Promise<TokenResult>;
     private doRefresh;
     logout(): Promise<void>;
-    wechatQrStart(): Promise<{
-        ticket: string;
-        qr_url: string;
-    }>;
     /**
      * 注销当前账号（不可逆）。confirm 必须为「确认注销」，服务端会校验。
      *
@@ -128,13 +124,6 @@ export declare class DAuthClient {
      * 否则会让人误以为账号已经注销。
      */
     deleteAccount(confirm: string, code?: string): Promise<{
-        ok: boolean;
-    }>;
-    wechatQrStatus(ticket: string): Promise<{
-        status: string;
-        tokens?: TokenResult;
-    }>;
-    wechatMockScan(ticket: string): Promise<{
         ok: boolean;
     }>;
     wechatMini(clientKey: string, code: string): Promise<TokenResult>;
