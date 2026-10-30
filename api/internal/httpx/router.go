@@ -110,6 +110,9 @@ func NewRouter(cfg *config.Config, authSvc *auth.Service, users *usersvc.Service
 			// 直接改绑手机号 / 邮箱（管理员操作，不校验验证码）；两者均唯一
 			adminG.PATCH("/users/:id/phone", RequireScope("users:write"), h.AdminSetPhone)
 			adminG.PATCH("/users/:id/email", RequireScope("users:write"), h.AdminSetEmail)
+			// 解绑单条登录标识（手机号 / 邮箱 / 微信 / 小程序）。service 会拒绝把
+			// 用户锁死的操作：解绑后既无其它标识也无密码时返回 LAST_IDENTITY。
+			adminG.DELETE("/users/:id/identities/:identId", RequireScope("users:write"), h.AdminDeleteIdentity)
 			adminG.POST("/users/:id/password", RequireScope("users:write"), h.AdminResetPassword)
 			// 后台代客换头像：与 /me/avatar 同一签名链路，上传地址落在后台路由上；
 			// key 归属按 URL 里的目标用户校验（usersvc.validateAvatarKey）。

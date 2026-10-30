@@ -125,6 +125,30 @@ async function resetPass() {
   message.success("密码已重置，其它会话已失效");
 }
 
+// 解绑登录标识。手机号/邮箱同字段可「直接改绑」，微信/小程序只能解绑，
+// 因此这个入口对后者尤其重要。
+// 后端会拒绝把用户锁死的操作（解绑后既无其它标识也无密码），错误信息会原样提示。
+function unbindIdentity(ident: Identity) {
+  if (!user.value) return;
+  const u = user.value;
+  confirm({
+    title: "确认解绑",
+    content: `将解绑「${identityLabel(ident.type)} · ${ident.identifier}」。解绑后该标识不能再用于登录。若这是最后一种登录方式且账号没有密码，服务端会拒绝本次操作。`,
+    positiveText: "解绑",
+    onPositiveClick: async () => {
+      try {
+        user.value = await client.adminDeleteIdentity(u.id, ident.id);
+        identities.value = (await client.adminUser(u.id)).identities;
+        phone.value = user.value.phone ?? "";
+        email.value = user.value.email ?? "";
+        message.success("已解绑");
+      } catch (e: unknown) {
+        message.error(errMessage(e, "解绑失败"));
+      }
+    },
+  });
+}
+
 function deleteUser() {
   if (!user.value) return;
   const u = user.value;
@@ -224,7 +248,10 @@ onMounted(load);
         </n-space>
       </n-card>
       <n-card title="登录标识">
-        <div v-for="id in identities" :key="id.id" class="row">{{ identityLabel(id.type) }} · {{ id.identifier }}</div>
+        <div v-for="id in identities" :key="id.id" class="row">
+          <span class="row-text">{{ identityLabel(id.type) }} · {{ id.identifier }}</span>
+          <n-button size="tiny" quaternary type="error" @click="unbindIdentity(id)">解绑</n-button>
+        </div>
         <div v-if="!identities.length" class="dauth-empty">
           <i class="ri-inbox-2-line dauth-ri" />
           暂无数据
@@ -236,10 +263,22 @@ onMounted(load);
 
 <style scoped>
 .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 0;
   border-bottom: 1px solid var(--dauth-border, #ececec);
   font-size: 13px;
   color: var(--dauth-text-secondary, #6b6b6b);
+}
+/* 长标识（如 微信 appID:openID）在窄屏下换行，不把「解绑」按钮挤出卡片 */
+.row-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.row:last-child {
+  border-bottom: none;
 }
 .hint {
   margin: -4px 0 0;

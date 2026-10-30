@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { h, onMounted, reactive, ref } from "vue";
+import { computed, h, onMounted, reactive, ref } from "vue";
 import {
   NAlert,
-  NButton,
   NCard,
   NDataTable,
   NForm,
@@ -10,9 +9,7 @@ import {
   NInput,
   NModal,
   NSelect,
-  NSpace,
   NTag,
-  NTooltip,
   useMessage,
 } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
@@ -22,12 +19,12 @@ import { copyText } from "../clipboard";
 import { useConfirm } from "../confirm";
 import { formatDateTime } from "../datetime";
 import { errMessage, expiryOptions } from "../labels";
-import { useTableScrollX } from "../viewport";
+import { renderActions } from "../table";
+import { sumColumnWidth } from "../table";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
-const tableScrollX = useTableScrollX();
 const items = ref<ApiKey[]>([]);
 const loading = ref(false);
 
@@ -160,52 +157,59 @@ function remove(k: ApiKey) {
   });
 }
 
-/** 操作列按钮：纯图标 + tooltip，避免文字撑宽表格。 */
-function iconButton(icon: string, label: string, onClick: () => void, type?: "error") {
-  return h(
-    NTooltip,
-    { trigger: "hover" },
-    {
-      trigger: () =>
-        h(
-          NButton,
-          { text: true, type, onClick, "aria-label": label },
-          { default: () => h("i", { class: `${icon} dauth-ri` }) },
-        ),
-      default: () => label,
-    },
-  );
-}
-
+/**
+ * 操作列一律用文字按钮。
+ *
+ * 早先这里是「纯图标 + NTooltip(trigger: hover)」，理由是省表格宽度。但触屏没有
+ * hover，手机上看到的是三个没有标签的图标，用户只能靠猜；而且图标按钮的点击
+ * 区域很小，编辑/停用/删除又挨得很近，容易点错。改成文字后语义自明，配合
+ * .dauth-action 的左右内边距也更好点。
+ */
 const columns: DataTableColumns<ApiKey> = [
-  { title: "名称", key: "name" },
-  { title: "密钥", key: "key_prefix", render: (r) => h("code", { class: "key-mask" }, maskKey(r)) },
+  { title: "名称", key: "name", width: 140, ellipsis: { tooltip: true } },
+  {
+    title: "密钥",
+    key: "key_prefix",
+    width: 130,
+    ellipsis: { tooltip: true },
+    render: (r) => h("code", { class: "key-mask" }, maskKey(r)),
+  },
   {
     title: "状态",
     key: "status",
+    width: 80,
     render: (r) =>
       h(NTag, { size: "small", type: r.status === "active" ? "success" : "warning" }, { default: () => (r.status === "active" ? "正常" : "已停用") }),
   },
-  { title: "创建时间", key: "created_at", render: (r) => formatDateTime(r.created_at) },
-  { title: "到期时间", key: "expires_at", render: (r) => (r.expires_at ? formatDateTime(r.expires_at) : "永不过期") },
-  { title: "最近使用", key: "last_used_at", render: (r) => formatDateTime(r.last_used_at) },
+  // 三列时间都是定长字符串，给足宽度并开省略，避免把表格撑得过宽
+  { title: "创建时间", key: "created_at", width: 165, render: (r) => formatDateTime(r.created_at) },
+  {
+    title: "到期时间",
+    key: "expires_at",
+    width: 165,
+    render: (r) => (r.expires_at ? formatDateTime(r.expires_at) : "永不过期"),
+  },
+  { title: "最近使用", key: "last_used_at", width: 165, render: (r) => formatDateTime(r.last_used_at) },
   {
     title: "操作",
     key: "op",
+    width: 150,
+    // 靠右固定：横向滚动时操作列始终可见
+    fixed: "right",
     render: (r) =>
-      h(NSpace, { size: 4 }, {
-        default: () => [
-          iconButton("ri-edit-line", "编辑", () => openEdit(r)),
-          iconButton(
-            r.status === "active" ? "ri-pause-circle-line" : "ri-play-circle-line",
-            r.status === "active" ? "停用" : "启用",
-            () => toggleStatus(r),
-          ),
-          iconButton("ri-delete-bin-line", "删除", () => remove(r), "error"),
-        ],
-      }),
+      renderActions([
+        { label: "编辑", type: "primary", onClick: () => openEdit(r) },
+        {
+          label: r.status === "active" ? "停用" : "启用",
+          type: "default",
+          onClick: () => toggleStatus(r),
+        },
+        { label: "删除", type: "error", onClick: () => remove(r) },
+      ]),
   },
 ];
+const tableScrollX = computed(() => sumColumnWidth(columns));
+
 
 onMounted(load);
 </script>

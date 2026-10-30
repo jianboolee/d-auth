@@ -389,6 +389,67 @@ func (s *Service) SetUserIdentity(id string, typ, raw string) (dto.User, error) 
 	return u, err
 }
 
+// UnbindUserIdentity 解绑用户的某一条登录标识，供后台管理使用。
+//
+// 与自助端 usersvc.UnbindIdentity 的区别：那边按 identID 删自己名下的记录，
+// 这里由管理员按 identID 删指定用户名下的记录，且要额外守住「账号还能不能登录」。
+// 自助端只数 identity 行数，不看其余行是否真的可用；后台场景更需要这道检查，
+// 因为管理员可能一次解绑掉用户唯一的手机号却没意识到对方没有密码。
+//
+// 守卫规则——解绑后必须仍存在至少一种「可用」的登录能力：
+//  1. 剩余 identity 至少一条；或
+//  2. 用户设置了密码（可用密码登录，identifier 为手机号/邮箱）。
+//
+// 两者都不满足时拒绝。这样既能解绑小程序/微信标识，也不会把账号锁死。
+func (s *Service) UnbindUserIdentity(id string, identID uuid.UUID) (dto.User, error) {
+	u, err := s.store.UserByID(id)
+	if err != nil {
+		return dto.User{}, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "用户不存在")
+	}
+
+	list, err := s.store.IdentitiesOf(id)
+	if err != nil {
+		return dto.User{}, err
+	}
+
+	// 确认这条标识确实属于本人，避免误删他人的记录；同时数出解绑后还剩几条。
+	found := false
+	remaining := 0
+	for i := range list {
+		if list[i].ID == identID {
+			found = true
+			continue
+		}
+		remaining++
+	}
+	if !found {
+		return dto.User{}, apperr.New(apperr.ErrNotFound, "NOT_FOUND", "标识不存在或不属于该用户")
+	}
+
+	hasPassword := u.PasswordHash != nil && strings.TrimSpace(*u.PasswordHash) != ""
+	if remaining == 0 && !hasPassword {
+		return dto.User{}, apperr.New(apperr.ErrInvalidArgument, "LAST_IDENTITY",
+			"这是该用户最后的登录方式且未设置密码，解绑后将无法登录")
+	}
+
+	// 只做删除，不做「自动补一个虚拟号」之类的隐式补偿——那会让管理员
+	// 误以为账号仍有登录方式。
+	if err := s.store.DB.Where("id = ? AND user_id = ?", identID, id).
+		Delete(&models.Identity{}).Error; err != nil {
+		return dto.User{}, err
+	}
+
+	// 解绑后账号仍可登录，因此不吊销 refresh 白名单（与「停用」不同，
+	// 那里才需要全量踢下线）；只需让资料缓存失效。
+	s.invalidate(id)
+
+	newUser, _, err := s.GetUser(id)
+	if err != nil {
+		return dto.User{}, err
+	}
+	return newUser, nil
+}
+
 // 虚拟号形态：120 开头 + 8 位随机数字，共 11 位。120 不是真实号段，
 // normalize.Phone 会拒绝它，因此只可能出现在后台建号／改绑的宽松校验下。
 const (

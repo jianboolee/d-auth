@@ -586,6 +586,16 @@ export class DAuthClient {
     });
   }
 
+  /**
+   * 解绑用户的某条登录标识（手机号 / 邮箱 / 微信 / 小程序），返回更新后的用户。
+   * 若解绑后该用户既无其它标识也无密码，服务端返回 LAST_IDENTITY 拒绝执行。
+   */
+  adminDeleteIdentity(id: string, identityId: string) {
+    return this.request<User>(`/v1/admin/users/${id}/identities/${identityId}`, {
+      method: "DELETE",
+    });
+  }
+
   adminResetPassword(id: string, password: string) {
     return this.request(`/v1/admin/users/${id}/password`, {
       method: "POST",

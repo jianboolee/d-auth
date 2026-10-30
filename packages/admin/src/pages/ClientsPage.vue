@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from "vue";
-import { NButton, NCard, NDataTable, NForm, NFormItem, NInput, NModal, NSelect, NSpace, NTag, useMessage } from "naive-ui";
+import { NCard, NDataTable, NForm, NFormItem, NInput, NModal, NSelect, NTag, useMessage } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import type { ClientApp } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { useConfirm } from "../confirm";
 import { clientTypeLabel, clientTypeOptions, errMessage, statusLabel } from "../labels";
-import { useTableScrollX } from "../viewport";
+import { renderActions } from "../table";
+import { sumColumnWidth } from "../table";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
-const tableScrollX = useTableScrollX();
 const items = ref<ClientApp[]>([]);
 const loading = ref(false);
 const show = ref(false);
@@ -161,42 +161,40 @@ function remove(row: ClientApp) {
 }
 
 const columns: DataTableColumns<ClientApp> = [
-  { title: "应用标识", key: "client_key" },
-  { title: "名称", key: "name" },
-  { title: "类型", key: "type", render: (r) => clientTypeLabel(r.type) },
+  { title: "应用标识", key: "client_key", width: 130, ellipsis: { tooltip: true } },
+  { title: "名称", key: "name", width: 130, ellipsis: { tooltip: true } },
+  { title: "类型", key: "type", width: 90, render: (r) => clientTypeLabel(r.type) },
   {
     title: "小程序 AppID",
     key: "wechat_app_id",
+    width: 190,
+    ellipsis: { tooltip: true },
     // 只有小程序才有值，其余类型留空会是一片空白格
     render: (r) => r.wechat_app_id || "—",
   },
   {
     title: "状态",
     key: "status",
+    width: 80,
     render: (r) => h(NTag, { size: "small", type: r.status === "active" ? "success" : "warning" }, { default: () => statusLabel(r.status) }),
   },
   {
     title: "操作",
     key: "op",
+    width: 130,
+    // 靠右固定：横向滚动时操作列始终可见
+    fixed: "right",
     render: (r) =>
-      h(NSpace, { size: 4 }, {
-        default: () => [
-          h(NButton, { text: true, type: "primary", onClick: () => openEdit(r) }, { default: () => "编辑" }),
-          // 控制台自身既不能停用也不能删除，直接不渲染这两个按钮
-          isConsole(r)
-            ? null
-            : h(
-                NButton,
-                { text: true, onClick: () => toggleStatus(r) },
-                { default: () => (r.status === "active" ? "停用" : "启用") },
-              ),
-          isConsole(r)
-            ? null
-            : h(NButton, { text: true, type: "error", onClick: () => remove(r) }, { default: () => "删除" }),
-        ],
-      }),
+      renderActions([
+        { label: "编辑", type: "primary", onClick: () => openEdit(r) },
+        // 控制台自身既不能停用也不能删除，传 null 而非渲染禁用按钮
+        isConsole(r) ? null : { label: r.status === "active" ? "停用" : "启用", type: "default", onClick: () => toggleStatus(r) },
+        isConsole(r) ? null : { label: "删除", type: "error", onClick: () => remove(r) },
+      ]),
   },
 ];
+const tableScrollX = computed(() => sumColumnWidth(columns));
+
 
 onMounted(load);
 </script>

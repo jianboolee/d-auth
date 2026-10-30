@@ -35,3 +35,14 @@ export function useTableScrollX(minWidth = MOBILE_TABLE_MIN_WIDTH): ComputedRef<
   const isMobile = useIsMobile();
   return computed(() => (isMobile.value ? minWidth : undefined));
 }
+
+/**
+ * 表格是否应切到「精简列」模式。
+ *
+ * 与 useTableScrollX 用的是同一个断点，但语义不同：scroll-x 让表格横向滚动，
+ * 而精简列是直接少显示几列，让关键信息（手机号、操作）能在窄屏上一屏看完。
+ * 两者可以叠加——精简后仍需滚动的表格还能继续横向拖动。
+ */
+export function useCompactColumns(): Ref<boolean> {
+  return useIsMobile();
+}

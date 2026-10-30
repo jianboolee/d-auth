@@ -6,24 +6,26 @@ import type { AuditLog } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
 import { errMessage } from "../labels";
-import { useTableScrollX } from "../viewport";
+import { sumColumnWidth } from "../table";
 
 const client = useAdminClient();
 const message = useMessage();
-const tableScrollX = useTableScrollX();
 const items = ref<AuditLog[]>([]);
 const loading = ref(false);
 const total = ref(0);
 const q = reactive({ page: 1, size: 20 });
 
 const columns: DataTableColumns<AuditLog> = [
-  // 后端返回的是带纳秒的 RFC3339，直接显示既长又难读；与其它表格统一格式化
-  { title: "时间", key: "created_at", render: (r) => formatDateTime(r.created_at) },
-  { title: "动作", key: "action" },
-  { title: "操作者", key: "actor_user_id", render: (r) => r.actor_user_id || "—" },
-  { title: "对象", key: "target_user_id", render: (r) => r.target_user_id || "—" },
-  { title: "IP 地址", key: "ip", render: (r) => r.ip || "—" },
+  // 后端返回的是带纳秒的 RFC3339，直接显示既长又难读；与其它表格统一格式化。
+  // 每列给宽度并开 ellipsis：不给时按内容自然宽度分配，长 ID 会把表格撑得很宽。
+  { title: "时间", key: "created_at", width: 165, render: (r) => formatDateTime(r.created_at) },
+  { title: "动作", key: "action", width: 150, ellipsis: { tooltip: true } },
+  { title: "操作者", key: "actor_user_id", width: 120, ellipsis: { tooltip: true }, render: (r) => r.actor_user_id || "—" },
+  { title: "对象", key: "target_user_id", width: 120, ellipsis: { tooltip: true }, render: (r) => r.target_user_id || "—" },
+  { title: "IP 地址", key: "ip", width: 120, render: (r) => r.ip || "—" },
 ];
+const tableScrollX = computed(() => sumColumnWidth(columns));
+
 
 async function load() {
   loading.value = true;
