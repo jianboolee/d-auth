@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, reactive, ref } from "vue";
+import { computed, h, onMounted, reactive, ref } from "vue";
 import {
   NAlert,
   NCard,
@@ -20,12 +20,11 @@ import { useConfirm } from "../confirm";
 import { formatDateTime } from "../datetime";
 import { errMessage, expiryOptions } from "../labels";
 import { renderActions } from "../table";
-import { useTableScrollX } from "../viewport";
+import { sumColumnWidth } from "../table";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
-const tableScrollX = useTableScrollX();
 const items = ref<ApiKey[]>([]);
 const loading = ref(false);
 
@@ -209,6 +208,8 @@ const columns: DataTableColumns<ApiKey> = [
       ]),
   },
 ];
+const tableScrollX = computed(() => sumColumnWidth(columns));
+
 
 onMounted(load);
 </script>

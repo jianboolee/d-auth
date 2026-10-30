@@ -7,12 +7,11 @@ import { useAdminClient } from "../client";
 import { useConfirm } from "../confirm";
 import { clientTypeLabel, clientTypeOptions, errMessage, statusLabel } from "../labels";
 import { renderActions } from "../table";
-import { useTableScrollX } from "../viewport";
+import { sumColumnWidth } from "../table";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
-const tableScrollX = useTableScrollX();
 const items = ref<ClientApp[]>([]);
 const loading = ref(false);
 const show = ref(false);
@@ -194,6 +193,8 @@ const columns: DataTableColumns<ClientApp> = [
       ]),
   },
 ];
+const tableScrollX = computed(() => sumColumnWidth(columns));
+
 
 onMounted(load);
 </script>

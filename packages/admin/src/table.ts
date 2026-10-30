@@ -1,4 +1,5 @@
 import { h } from "vue";
+import type { DataTableColumns } from "naive-ui";
 import { NButton, NSpace } from "naive-ui";
 
 /**
@@ -57,3 +58,19 @@ export function renderActions(items: ActionItem[]) {
 
 /** 操作列的通用配置：固定宽度 + 靠右固定，窄屏横向滚动时始终可见。 */
 export const ACTION_COLUMN_WIDTH = 140;
+
+/**
+ * 按列定义里声明的 width 求和，得到一个贴合实际内容的最小表格宽度。
+ *
+ * 原先窄屏统一用 640px 的 scroll-x（MOBILE_TABLE_MIN_WIDTH），那是七列全都
+ * 显示时的经验值。精简列之后四列实宽只有约 390px，仍按 640 撑会被强制拉宽
+ * 一倍，反而多出一段没内容的横向滚动。没有声明 width 的列（会自适应）不参与
+ * 计算，此时返回 undefined，交给 naive 自行处理。
+ */
+export function sumColumnWidth(columns: DataTableColumns<any>, fallback = 480): number {
+  const total = columns.reduce((acc, col) => {
+    const w = (col as { width?: number | string }).width;
+    return typeof w === "number" ? acc + w : acc;
+  }, 0);
+  return total > 0 ? total : fallback;
+}

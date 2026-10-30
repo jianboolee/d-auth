@@ -16,14 +16,13 @@ import type { User } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { formatDateTime } from "../datetime";
 import { errMessage, roleLabel, statusLabel } from "../labels";
-import { useCompactColumns, useTableScrollX } from "../viewport";
-import { ACTION_COLUMN_WIDTH, renderActions } from "../table";
+import { useCompactColumns } from "../viewport";
+import { ACTION_COLUMN_WIDTH, renderActions, sumColumnWidth } from "../table";
 
 const props = defineProps<{ basePath?: string }>();
 const client = useAdminClient();
 const router = useRouter();
 const message = useMessage();
-const tableScrollX = useTableScrollX();
 const compact = useCompactColumns();
 /**
  * 窄屏下筛选区默认收起，只留一个模糊搜索框：375px 屏上搜索/状态/日期三个
@@ -258,6 +257,15 @@ const columns = computed<DataTableColumns<User>>(() => {
   return base;
 });
 
+/**
+ * 窄屏下让表格宽度贴合精简后的列总宽。
+ *
+ * 固定用 640px（MOBILE_TABLE_MIN_WIDTH）是为七列全显示时代设的经验值；现在
+ * 窄屏只剩四列、实宽约 390px，仍按 640 撑会凭空多出一段空白滚动区。
+ * 宽屏保留 undefined，让 naive 自适应填满容器。
+ */
+const scrollX = computed(() => (compact.value ? sumColumnWidth(columns.value) : undefined));
+
 onMounted(load);
 </script>
 
@@ -332,7 +340,7 @@ onMounted(load);
         :data="items"
         :loading="loading"
         :pagination="pagination"
-        :scroll-x="tableScrollX"
+        :scroll-x="scrollX"
         @update:sorter="onSorterChange"
       >
         <template #empty>

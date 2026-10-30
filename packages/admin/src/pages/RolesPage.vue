@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, reactive, ref } from "vue";
+import { computed, h, onMounted, reactive, ref } from "vue";
 import {
   NCard,
   NDataTable,
@@ -16,12 +16,11 @@ import { useAdminClient } from "../client";
 import { useConfirm } from "../confirm";
 import { errMessage } from "../labels";
 import { renderActions } from "../table";
-import { useTableScrollX } from "../viewport";
+import { sumColumnWidth } from "../table";
 
 const client = useAdminClient();
 const message = useMessage();
 const confirm = useConfirm();
-const tableScrollX = useTableScrollX();
 const items = ref<Role[]>([]);
 const show = ref(false);
 /** 非空表示编辑该角色，为空表示新建。 */
@@ -128,6 +127,8 @@ const columns: DataTableColumns<Role> = [
       ]),
   },
 ];
+const tableScrollX = computed(() => sumColumnWidth(columns));
+
 
 onMounted(load);
 </script>
