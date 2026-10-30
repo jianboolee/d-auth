@@ -24,8 +24,13 @@ const embed = computed(
 
 const publicPage = computed(() => route.meta.public === true);
 const title = computed(() => (typeof route.meta.title === "string" ? route.meta.title : "账户中心"));
-// 移动端顶部留出悬浮菜单按钮的位置
-const contentPadding = computed(() => (mobile.value ? "56px 16px 20px" : "20px 24px"));
+// 移动端顶部留出悬浮菜单按钮的位置。
+//
+// 左右只给 8px：页面主体是 n-card，卡片自己还有左右 padding（naive 默认 24px，
+// 窄屏下由 theme.css 的 @media 收到 14px）。外层再给 16px 会叠成 40px/侧，
+// 375px 屏上左右共 80px（约 21% 宽度被留白吃掉），这正是「移动端 padding 太宽」
+// 的来源。桌面维持 24px —— 那边卡片是 24px，合计 48px 在宽屏上比例正常。
+const contentPadding = computed(() => (mobile.value ? "56px 8px 20px" : "20px 24px"));
 
 function onResize() {
   mobile.value = window.innerWidth < 768;
@@ -91,7 +96,7 @@ async function logout() {
         </n-button>
       </n-space>
     </div> -->
-    <n-layout-content content-style="padding: 16px" :native-scrollbar="false">
+    <n-layout-content class="embed-content" content-style="padding: 16px" :native-scrollbar="false">
       <router-view />
     </n-layout-content>
   </n-layout>
@@ -128,5 +133,13 @@ async function logout() {
   top: 14px;
   left: 14px;
   z-index: 20;
+}
+
+/* 登录/注册/找回等 embed 页面：外层这层 16px 会与 AuthShell 自己的 16px 叠加，
+ * 窄屏下合计 32px/侧显得空。窄屏时这层让位，由 AuthShell 统一提供留白。 */
+@media (max-width: 767px) {
+  .embed-content {
+    padding: 8px !important;
+  }
 }
 </style>

@@ -31,7 +31,11 @@ defineProps<{
   width: min(420px, 100%);
   background: transparent;
 }
-.auth-card :deep(.n-card__content) {
+/* naive-ui 的内容容器类名是 .n-card-content（单破折号），不是 BEM 风格的
+   .n-card__content —— 早先写成双下划线时这条规则从未生效，卡片一直用默认
+   24px 内边距，窄屏下与外层 auth-wrap 的 16px 叠成 40px/侧。
+   登录页的横向留白由 auth-wrap 统一提供，卡片内只需很小的左右内边距。 */
+.auth-card :deep(.n-card-content) {
   padding: 8px 4px 16px;
 }
 .auth-brand {
