@@ -83,6 +83,26 @@ body,
   display: none;
 }
 
+/* ---------- 表格操作列按钮 ----------
+ *
+ * 表格里的操作按钮是 text 模式（无边框无背景），默认内边距很小，图标/文字
+ * 直接贴着相邻按钮。模板里已把间距放到 8px（NSpace size="small"），这里再
+ * 补左右内边距，让每个按钮的实际可点区域接近 44px 的触摸推荐值。
+ *
+ * 用 padding 而不是 min-width：按钮文案长度不一（详情 / 编辑 / 停用 / 删除），
+ * min-width 会让短的显得空、长的被截。左右各 6px 配合 8px gap，相邻按钮的
+ * 可点区域之间留出 20px 空隙，大幅降低点错概率。
+ */
+.dauth-action.n-button {
+  padding: 0 6px;
+}
+/* 触屏下再加一点：手指比鼠标粗，横向留白可以略大 */
+@media (max-width: 767px) {
+  .dauth-action.n-button {
+    padding: 0 8px;
+  }
+}
+
 /* ---------- 移动端留白 ----------
  *
  * naive-ui 的卡片把左右内边距以 CSS 变量 --n-padding-left / --n-padding-right

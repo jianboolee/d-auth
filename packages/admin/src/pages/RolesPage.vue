@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { h, onMounted, reactive, ref } from "vue";
 import {
-  NButton,
   NCard,
   NDataTable,
   NForm,
   NFormItem,
   NInput,
   NModal,
-  NSpace,
   NTag,
   useMessage,
 } from "naive-ui";
@@ -17,6 +15,7 @@ import type { Role } from "@donktech/d-auth-sdk";
 import { useAdminClient } from "../client";
 import { useConfirm } from "../confirm";
 import { errMessage } from "../labels";
+import { renderActions } from "../table";
 import { useTableScrollX } from "../viewport";
 
 const client = useAdminClient();
@@ -100,12 +99,13 @@ function remove(role: Role) {
 }
 
 const columns: DataTableColumns<Role> = [
-  { title: "代码", key: "code" },
-  { title: "名称", key: "name" },
-  { title: "说明", key: "description" },
+  { title: "代码", key: "code", width: 130, ellipsis: { tooltip: true } },
+  { title: "名称", key: "name", width: 130, ellipsis: { tooltip: true } },
+  { title: "说明", key: "description", ellipsis: { tooltip: true } },
   {
     title: "类型",
     key: "is_system",
+    width: 100,
     render: (r) =>
       h(
         NTag,
@@ -113,20 +113,19 @@ const columns: DataTableColumns<Role> = [
         { default: () => (r.is_system ? "系统内置" : "自定义") },
       ),
   },
-  { title: "用户数", key: "user_count" },
+  { title: "用户数", key: "user_count", width: 80 },
   {
     title: "操作",
     key: "op",
+    width: 110,
+    // 靠右固定：横向滚动时操作列始终可见
+    fixed: "right",
     render: (r) =>
-      h(NSpace, { size: 4 }, {
-        default: () => [
-          h(NButton, { text: true, type: "primary", onClick: () => openEdit(r) }, { default: () => "编辑" }),
-          // 系统内置角色不允许删除，直接不渲染删除按钮
-          r.is_system
-            ? null
-            : h(NButton, { text: true, type: "error", onClick: () => remove(r) }, { default: () => "删除" }),
-        ],
-      }),
+      renderActions([
+        { label: "编辑", type: "primary", onClick: () => openEdit(r) },
+        // 系统内置角色不允许删除，传 null 而不是渲染禁用按钮，避免误导
+        r.is_system ? null : { label: "删除", type: "error", onClick: () => remove(r) },
+      ]),
   },
 ];
 
