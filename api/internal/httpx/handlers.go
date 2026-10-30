@@ -795,6 +795,31 @@ func (h *Handlers) AdminSetEmail(c *gin.Context) {
 	response.OK(c, u)
 }
 
+// AdminDeleteIdentity 解绑用户的一条登录标识（手机号 / 邮箱 / 微信 / 小程序）。
+//
+// 与自助端 DELETE /v1/me/identities/:id 的区别：这里由管理员操作任意用户，
+// 并且 service 层会拦住「解绑后账号将无法登录」的情况，避免把用户锁死。
+// 审计只记类型，不记 identifier —— 里面可能是手机号或邮箱明文。
+func (h *Handlers) AdminDeleteIdentity(c *gin.Context) {
+	id, err := idgen.ParseUserID(c.Param("id"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效 ID")
+		return
+	}
+	identID, err := uuid.Parse(c.Param("identId"))
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, "INVALID_ID", "无效标识 ID")
+		return
+	}
+	u, err := h.Admin.UnbindUserIdentity(id, identID)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	h.audit(c, "user.unbind_identity", &id, nil)
+	response.OK(c, u)
+}
+
 // AdminSignAvatar 管理员为指定用户签发头像上传凭证。签名链路与自助端
 // SignAvatar 完全相同，只是上传地址指向后台的 /users/:id/avatar/upload。
 func (h *Handlers) AdminSignAvatar(c *gin.Context) {

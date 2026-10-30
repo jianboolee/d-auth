@@ -260,6 +260,11 @@ export declare class DAuthClient {
     adminSetUserPhone(id: string, phone: string): Promise<User>;
     /** 直接改绑用户邮箱（管理员操作，不校验验证码）。邮箱唯一，冲突返回 EMAIL_TAKEN。 */
     adminSetUserEmail(id: string, email: string): Promise<User>;
+    /**
+     * 解绑用户的某条登录标识（手机号 / 邮箱 / 微信 / 小程序），返回更新后的用户。
+     * 若解绑后该用户既无其它标识也无密码，服务端返回 LAST_IDENTITY 拒绝执行。
+     */
+    adminDeleteIdentity(id: string, identityId: string): Promise<User>;
     adminResetPassword(id: string, password: string): Promise<unknown>;
     /** 超管注销指定用户（墓碑式删除，不可逆）。confirm 需为「确认注销」。 */
     adminDeleteUser(id: string, confirm: string): Promise<{
