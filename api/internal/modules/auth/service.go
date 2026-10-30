@@ -32,16 +32,16 @@ import (
 )
 
 type Service struct {
-	cfg      *config.Config
-	store    *store.Store
-	codes    *codes.Service
-	sms      sms.Sender
-	mail     mailer.Sender
-	jwt      *tokens.Manager
+	cfg   *config.Config
+	store *store.Store
+	codes *codes.Service
+	sms   sms.Sender
+	mail  mailer.Sender
+	jwt   *tokens.Manager
 	// wxResolver 按 client 的凭据选实现（真实微信 / Mock）—— 见 wechat.Resolver。
 	wxResolver *wechat.Resolver
-	rdb      *redis.Client
-	sessions *sessionstore.Store
+	rdb        *redis.Client
+	sessions   *sessionstore.Store
 	// cache 缓存组装好的用户资料。登录会更新 last_login_at、提升超管会改角色，
 	// 两处都要让缓存失效，否则 internal 接口会返回陈旧的「最近登录时间」。
 	cache *usercache.Cache
@@ -333,6 +333,17 @@ func (s *Service) RevokeSession(refreshToken string) error {
 	return s.sessions.RevokeByToken(context.Background(), refreshToken)
 }
 
+// wxImplName 给诊断日志用：返回实际使用的微信客户端实现名。
+func wxImplName(c wechat.Client) string {
+	switch c.(type) {
+	case *wechat.Live:
+		return "live"
+	case *wechat.Mock:
+		return "mock"
+	}
+	return "unknown"
+}
+
 // 微信扫码登录（WeChatQRStart / WeChatQRStatus / WeChatCallback / MockWeChatConfirm）
 // 已于 2026-10-31 整组删除。理由：
 //   - 前端从未接通：LoginPage 里只有一块占位灰块，没有任何地方调 wechatQrStart；
@@ -366,8 +377,21 @@ func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta
 	if secretPlain == "" {
 		secretPlain = "mock"
 	}
+	// 一行诊断日志：排查"为什么登录走了真实微信/为什么报 WECHAT_FAILED"时，
+	// 光看代码看不出这个 client 到底配没配凭据（凭据在库里、且 secret 是加密的）。
+	// 只打"有没有配"与选中的实现，不打凭据本身。
+	slog.Info("wechat mini login",
+		"client", clientKey,
+		"has_appid", cl.WechatAppID != "",
+		"has_secret", secretPlain != "",
+		"impl", wxImplName(wx))
 	info, err := wx.MiniCode2Session(ctx, cl.WechatAppID, secretPlain, jsCode)
 	if err != nil {
+		// 原始错误一定要进日志：微信那边返回什么（invalid code / invalid appid /
+		// secret 不匹配）是排查登录失败的唯一线索，而回给客户端的
+		// WECHAT_FAILED 为了不泄露内部细节已经把它抹平了。
+		slog.Warn("wechat mini code2session failed",
+			"client", clientKey, "err", err.Error())
 		return nil, apperr.New(err, "WECHAT_FAILED", "小程序登录失败")
 	}
 	info.AppID = cl.WechatAppID
