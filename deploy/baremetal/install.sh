@@ -149,12 +149,20 @@ esac
 
 # ---------- 端口 ----------
 step "检查 8680 / 8681 占用"
-# 输出占用某端口 LISTEN 的进程，最多 3 行；无占用或无检测工具时返回非 0。
+# port_owner 有三种结果，必须区分，不能把「查不了」混同于「没占用」：
+#   0 = 有进程在监听该端口（输出最多 3 行）
+#   1 = 确认没有进程监听
+#   2 = 没有可用的检测工具（ss / lsof 都不存在），结论未知
 #
-# 必须精确匹配端口，不能依赖工具整体输出：在容器/模拟环境下 lsof 可能返回
-# 与本端口无关的进程（实测 Rosetta 模拟层会这样），把「有人占用」误报成真的。
-# ss 走 -H 去掉表头，第 4 列是本地地址，形如 0.0.0.0:8680 / [::]:8680；
-# lsof 走 -iTCP:PORT -sTCP:LISTEN 且再用 grep 兜一层。
+# 三种状态是必要的：Ubuntu minimal 默认既无 ss 也无 lsof，早期版本在这里
+# 静默返回「空闲」，于是端口真被占用时也放行，随后 systemd 启动失败，报的是
+# 一个与端口无关的难懂错误。宁可显式报「不知道」也不要假阴性地放行。
+#
+# 匹配必须精确：不能拿工具的整体输出当结论。实测在 Rosetta 模拟层下 lsof
+# 会返回大量与本端口无关的进程，把「空闲」误报成「被占用」。ss 走 -ltnH
+# （-H 去表头），第 4 列是本地地址，形如 0.0.0.0:8680 / [::]:8680；
+# lsof 走 -iTCP:PORT -sTCP:LISTEN 后再用 grep -F 兜一层。
+# 两者都按「地址列以 :PORT 结尾」匹配，避免 680 命中 8680。
 port_owner() {
   local port="$1" out=""
   if command -v ss >/dev/null 2>&1; then
@@ -162,29 +170,55 @@ port_owner() {
   elif command -v lsof >/dev/null 2>&1; then
     out=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | tail -n +2 | grep -F ":${port}")
   else
-    return 1
+    return 2
   fi
   [ -n "$out" ] || return 1
   echo "$out" | head -3
   return 0
 }
-if owners=$(port_owner 8680); then
-  echo "   8680 被占用："
-  echo "$owners" | sed 's/^/     /'
-  warn "若为上次的 d-auth 容器属正常，安装阶段会替换"
-else
-  ok "8680 空闲"
-fi
-if owners=$(port_owner 8681); then
-  echo "   8681 被占用："
-  echo "$owners" | sed 's/^/     /'
+
+# 调用方统一按哨兵值分支，避免 `if owners=$(...)` 把 1 和 2 混在一起。
+PORT_UNKNOWN=""
+check_port() {
+  local port="$1" label="$2" out rc
+  out=$(port_owner "$port"); rc=$?
+  case "$rc" in
+    0)
+      echo "   ${port} 被占用："
+      echo "$out" | sed 's/^/     /'
+      return 0
+      ;;
+    1)
+      ok "${port} 空闲"
+      return 1
+      ;;
+    *)
+      PORT_UNKNOWN="${PORT_UNKNOWN} ${port}"
+      warn "无法检测 ${port} 占用（缺 ss / lsof），这个端口的状态未知"
+      return 2
+      ;;
+  esac
+}
+
+# 调用方统一按返回码分支：0=占用，1=空闲，2=无法检测。
+# 注意 check_port 返回非 0 属正常控制流，用 `|| rc=$?` 捕获以免 set -e 中断。
+rc=0
+check_port 8680 "8680" || rc=$?
+[ "$rc" = "0" ] && warn "若为上次的 d-auth 容器属正常，安装阶段会替换"
+
+rc=0
+check_port 8681 "8681" || rc=$?
+if [ "$rc" = "0" ]; then
   if systemctl is-active --quiet d-auth 2>/dev/null; then
     ok "为 d-auth.service 自身（更新场景属正常）"
   else
     fail "8681 被别的进程占用，裸机方案需要它（API 端口）"
   fi
-else
-  ok "8681 空闲"
+fi
+
+if [ -n "$PORT_UNKNOWN" ]; then
+  warn "以下端口无法确认是否被占用：${PORT_UNKNOWN}"
+  warn "安装阶段会直接启动服务；若端口冲突，systemd 会报 bind 失败（见 journalctl）"
 fi
 
 if [ "$CHECK_ONLY" = "1" ]; then
