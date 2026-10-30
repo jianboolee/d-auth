@@ -139,7 +139,7 @@ func TestSMSLoginParsesTokens(t *testing.T) {
 		path = r.URL.Path
 		writeOK(t, w, map[string]any{
 			"access_token": "a", "refresh_token": "r", "token_type": "Bearer",
-			"expires_in": 900, "user": map[string]any{"id": "u1", "nickname": "n"},
+			"expires_in": 900, "is_new_user": true, "user": map[string]any{"id": "u1", "nickname": "n"},
 		})
 	})
 
@@ -152,6 +152,9 @@ func TestSMSLoginParsesTokens(t *testing.T) {
 	}
 	if toks.AccessToken != "a" || toks.User.ID != "u1" {
 		t.Errorf("tokens = %+v", toks)
+	}
+	if !toks.IsNewUser {
+		t.Errorf("is_new_user was not parsed from the login response: %+v", toks)
 	}
 }
 

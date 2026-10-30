@@ -48,6 +48,12 @@ export type TokenResult = {
     refresh_token: string;
     token_type: string;
     expires_in: number;
+    /**
+     * 本次请求是否刚刚创建了该用户（不是「用户很新」）。
+     * 只有真正建号的登录路径为 true：短信登录首次建号、小程序登录首次建号、
+     * 邮箱注册。密码登录与续期恒为 false。
+     */
+    is_new_user: boolean;
     user: User;
 };
 export type Envelope<T> = {

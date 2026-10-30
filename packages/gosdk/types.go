@@ -63,7 +63,11 @@ type TokenResult struct {
 	RefreshToken string `json:"refresh_token"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
-	User         User   `json:"user"`
+	// IsNewUser 表示本次请求是否刚刚创建了该用户（不是「用户很新」）。
+	// 只有真正建号的登录路径为 true：短信登录首次建号、小程序登录首次建号、
+	// 邮箱注册。密码登录与续期恒为 false。
+	IsNewUser bool `json:"is_new_user"`
+	User      User `json:"user"`
 }
 
 // Identity 是一条绑定身份（手机号/邮箱/微信等）。

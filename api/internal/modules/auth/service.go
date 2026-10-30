@@ -142,11 +142,11 @@ func (s *Service) SMSLogin(ctx context.Context, phoneRaw, code string, meta Logi
 	if err := s.codes.Verify(ctx, "login", phone, code); err != nil {
 		return nil, err
 	}
-	user, err := s.findOrCreateByIdentity(models.IdentityPhone, phone, normalize.MaskPhoneDisplay(phone))
+	user, created, err := s.findOrCreateByIdentity(models.IdentityPhone, phone, normalize.MaskPhoneDisplay(phone))
 	if err != nil {
 		return nil, err
 	}
-	return s.issueToken(user, meta)
+	return s.issueToken(user, meta, created)
 }
 
 func (s *Service) SendEmail(ctx context.Context, emailRaw, scene, ip string) (string, error) {
@@ -209,7 +209,7 @@ func (s *Service) EmailRegister(ctx context.Context, emailRaw, code, pass, nickn
 		return nil, err
 	}
 	s.maybePromoteAdmin(&user, "", email)
-	return s.issueToken(&user, meta)
+	return s.issueToken(&user, meta, true)
 }
 
 // PasswordLogin 用手机号或邮箱 + 密码登录。密码属于账号本身，因此绑定了手机号的
@@ -245,7 +245,8 @@ func (s *Service) passwordLoginByIdentity(typ, identifier, pass string, meta Log
 	if user.PasswordHash == nil || !password.Verify(pass, *user.PasswordHash) {
 		return nil, invalid
 	}
-	return s.issueToken(user, meta)
+	// 密码登录只校验已有账号，绝不建号，因此 is_new_user 恒为 false。
+	return s.issueToken(user, meta, false)
 }
 
 func (s *Service) ForgotPassword(ctx context.Context, emailRaw, ip string) error {
@@ -322,7 +323,8 @@ func (s *Service) Refresh(refreshToken string, meta LoginMeta) (*dto.TokenResult
 	if err != nil {
 		return nil, err
 	}
-	return s.pack(user, roles, access, newRaw), nil
+	// 续期不可能是登录：账号在拿到 refresh 之前就已存在，is_new_user 恒为 false。
+	return s.pack(user, roles, access, newRaw, false), nil
 }
 
 // RevokeSession 吊销一枚 refresh token（登出）。幂等：token 为空或本就不存在时
@@ -364,7 +366,10 @@ func (s *Service) WeChatQRStatus(ctx context.Context, ticket string) (map[string
 	if err != nil {
 		return nil, nil, err
 	}
-	tokens, err := s.issueToken(user, LoginMeta{ClientKey: models.ClientKeyConsole})
+	// 扫码流程里账号是在 WeChatCallback 建的，到这里已经隔了一次请求，
+	// 「本次请求是否建号」无从判断。这条路径属于控制台登录、不承载新用户引导，
+	// 因此固定为 false，而不是拿创建时间猜。
+	tokens, err := s.issueToken(user, LoginMeta{ClientKey: models.ClientKeyConsole}, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -377,7 +382,8 @@ func (s *Service) WeChatCallback(ctx context.Context, code, ticket string, meta 
 	if err != nil {
 		return apperr.New(err, "WECHAT_FAILED", "微信授权失败")
 	}
-	user, err := s.upsertWechatUser(models.IdentityWechatOpen, info)
+	// 扫码登录的建号发生在回调里，签发 token 时已隔一次请求，无法判断，见 WeChatQRStatus。
+	user, _, err := s.upsertWechatUser(models.IdentityWechatOpen, info)
 	if err != nil {
 		return err
 	}
@@ -409,12 +415,12 @@ func (s *Service) WeChatMini(ctx context.Context, clientKey, jsCode string, meta
 		return nil, apperr.New(err, "WECHAT_FAILED", "小程序登录失败")
 	}
 	info.AppID = cl.WechatAppID
-	user, err := s.upsertWechatUser(models.IdentityWechatMini, info)
+	user, created, err := s.upsertWechatUser(models.IdentityWechatMini, info)
 	if err != nil {
 		return nil, err
 	}
 	meta.ClientKey = clientKey
-	return s.issueToken(user, meta)
+	return s.issueToken(user, meta, created)
 }
 
 func (s *Service) MockWeChatConfirm(ctx context.Context, ticket, openID string) error {
@@ -422,7 +428,8 @@ func (s *Service) MockWeChatConfirm(ctx context.Context, ticket, openID string) 
 		openID = "mock-open-" + ticket[:8]
 	}
 	info := wechat.UserInfo{OpenID: openID, UnionID: "mock-union", AppID: "mock-web"}
-	user, err := s.upsertWechatUser(models.IdentityWechatOpen, info)
+	// 扫码登录的建号发生在回调里，签发 token 时已隔一次请求，无法判断，见 WeChatQRStatus。
+	user, _, err := s.upsertWechatUser(models.IdentityWechatOpen, info)
 	if err != nil {
 		return err
 	}
@@ -436,13 +443,17 @@ func (s *Service) ParseAccess(token string) (*tokens.Claims, error) {
 	return s.jwt.Parse(token)
 }
 
-func (s *Service) findOrCreateByIdentity(typ, identifier, nickname string) (*models.User, error) {
+// findOrCreateByIdentity 按「标识类型 + 标识」找到账号，找不到就建号。
+// 第二个返回值表示本次调用是否真的建了号——调用方要拿它填 is_new_user，
+// 不能用创建时间之类的间接指标去猜。
+func (s *Service) findOrCreateByIdentity(typ, identifier, nickname string) (*models.User, bool, error) {
 	ident, err := s.store.FindIdentity(typ, identifier)
 	if err == nil {
-		return s.store.UserByID(ident.UserID)
+		user, uerr := s.store.UserByID(ident.UserID)
+		return user, false, uerr
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
+		return nil, false, err
 	}
 	now := time.Now()
 	var user models.User
@@ -456,7 +467,7 @@ func (s *Service) findOrCreateByIdentity(typ, identifier, nickname string) (*mod
 		})
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	phone, email := "", ""
 	if typ == models.IdentityPhone {
@@ -466,16 +477,18 @@ func (s *Service) findOrCreateByIdentity(typ, identifier, nickname string) (*mod
 		email = identifier
 	}
 	s.maybePromoteAdmin(&user, phone, email)
-	return &user, nil
+	return &user, true, nil
 }
 
-func (s *Service) upsertWechatUser(typ string, info wechat.UserInfo) (*models.User, error) {
+// upsertWechatUser 同上：第二个返回值是「本次是否建号」。
+func (s *Service) upsertWechatUser(typ string, info wechat.UserInfo) (*models.User, bool, error) {
 	ident, err := s.store.FindWechat(info.UnionID, info.AppID, info.OpenID)
 	if err == nil {
-		return s.store.UserByID(ident.UserID)
+		user, uerr := s.store.UserByID(ident.UserID)
+		return user, false, uerr
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
+		return nil, false, err
 	}
 	now := time.Now()
 	identifier := info.OpenID
@@ -493,12 +506,18 @@ func (s *Service) upsertWechatUser(typ string, info wechat.UserInfo) (*models.Us
 			UserID: user.ID, Type: typ, Identifier: identifier, Extra: extra, VerifiedAt: &now,
 		})
 	})
-	return &user, err
+	if err != nil {
+		return nil, false, err
+	}
+	return &user, true, nil
 }
 
 // issueToken 完成一次登录：签发 access JWT 并把 refresh token 登记进 Redis 白名单。
 // 不再写任何会话表——会话状态只存在于 Redis。
-func (s *Service) issueToken(user *models.User, meta LoginMeta) (*dto.TokenResult, error) {
+//
+// isNewUser 由建号那一步给出（见 findOrCreateByIdentity / upsertWechatUser），
+// 这里只负责透传，不要在这里用创建时间反推。
+func (s *Service) issueToken(user *models.User, meta LoginMeta, isNewUser bool) (*dto.TokenResult, error) {
 	if user.Status != models.StatusActive {
 		return nil, apperr.New(apperr.ErrDisabled, "DISABLED", "账号已停用")
 	}
@@ -541,16 +560,19 @@ func (s *Service) issueToken(user *models.User, meta LoginMeta) (*dto.TokenResul
 	user.LastLoginAt = &now
 	// last_login_at 会出现在用户资料里，登录后必须让缓存失效。
 	s.cache.Del(context.Background(), user.ID)
-	return s.pack(user, roles, access, refreshRaw), nil
+	return s.pack(user, roles, access, refreshRaw, isNewUser), nil
 }
 
-func (s *Service) pack(user *models.User, roles []string, access, refresh string) *dto.TokenResult {
+// pack 组装响应。isNewUser 由调用方给出：只有登录路径可能为 true，
+// 续期（Refresh）永远是 false。
+func (s *Service) pack(user *models.User, roles []string, access, refresh string, isNewUser bool) *dto.TokenResult {
 	idents, _ := s.store.IdentitiesOf(user.ID)
 	return &dto.TokenResult{
 		AccessToken:  access,
 		RefreshToken: refresh,
 		TokenType:    "Bearer",
 		ExpiresIn:    int(s.cfg.JWTAccessTTL.Seconds()),
+		IsNewUser:    isNewUser,
 		// 登录响应属于自助接口，手机号/邮箱脱敏后再返回。
 		User: dto.Masked(dto.FromUser(user, roles, idents, s.cfg.AvatarURL)),
 	}
