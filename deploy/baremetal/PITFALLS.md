@@ -11,7 +11,7 @@
 
 ## 1. 当前状态
 
-记录日期：2026-10-31
+记录日期：2026-10-31（已上生产验证）
 
 ### 1.1 完成度
 
@@ -20,40 +20,69 @@
 | 本地构建链路（`make bare-build`） | ✅ 实跑通过，产出 11MB tar 包 |
 | Go 交叉编译 | ✅ 实测产物 `statically linked` ELF x86-64 |
 | 二进制能否启动 | ✅ 起真实 Postgres + Redis 跑通，5 个迁移全部执行 |
-| nginx vhost 语法 | ✅ 真实 nginx 1.27 容器 `nginx -t` 通过 |
+| nginx vhost 语法 | ✅ 真实 nginx 1.27 / 1.24 容器 `nginx -t` 通过 |
 | 静态托管 + `/v1` 反代 + `/health` 反代 | ✅ 端到端实测通过 |
 | SPA fallback 与 `/assets/` 缓存头 | ✅ 实测通过 |
 | `.env.prod` 校验逻辑 | ✅ 双向测试（干净环境通过、故意加冲突键被拒） |
-| 端口占用检测 | ✅ 三态双向测试：占用能识别 / 空闲正确 / 缺工具时明确告警（Ubuntu + alpine 双环境） |
-| `install.sh --check` 预检路径 | ✅ 在 alpine 与 Ubuntu 24.04 两套环境跑通 |
-| **systemd unit 真实加载** | ❌ **未验证**（本机 macOS，无 systemd） |
-| **`install.sh` 完整执行（含装 nginx、起服务）** | ❌ **未验证**（需要在真业务机跑） |
-| **`rollback-to-docker.sh`** | ❌ **未验证** |
-| **业务机实际部署** | ❌ **尚未部署过** |
-| 代码提交 | ❌ 尚未 commit（工作区改动见下） |
+| 端口占用检测 | ✅ 三态双向测试：占用能识别 / 空闲正确 / 缺工具时明确告警（Ubuntu + alpine + Alinux 三环境） |
+| `install.sh --check` 预检路径 | ✅ alpine、Ubuntu 24.04、生产机三处跑通 |
+| **systemd unit 真实加载** | ✅ **生产机验证**：`active` + `enabled`，进程以 `dauth` 用户运行 |
+| **`install.sh` 完整执行** | ✅ **生产机验证**：装用户/目录、搬私钥、停容器、装 nginx vhost、起服务、两级探活全通 |
+| **`rollback-to-docker.sh`** | ✅ **生产机验证**：切回 Docker 成功，容器 healthy，私钥延续 |
+| **双向切换（裸机 → Docker → 裸机）** | ✅ **生产机验证**：两次切换后私钥指纹与 JWKS 完全一致 |
+| **公网链路（经入口机）** | ✅ `/health` 200、`/login` 200、`/v1/auth/session` 200、JWKS 一致 |
+| 代码提交 | ✅ PR #1，分支 `feat/baremetal-deploy` |
 
-### 1.2 工作区改动（截至记录时未提交）
+### 1.2 生产验证的关键证据
 
+2026-10-31 在业务机（Alibaba Cloud Linux 3，内网 172.17.255.64）实际切换，
+用「私钥指纹 + JWKS 公钥指纹」双重比对证明私钥没有重建：
+
+| 时点 | 私钥 md5 | JWKS kid | 公钥 n 的 sha256 前 32 位 |
+| --- | --- | --- | --- |
+| 部署前（容器） | `fa89ac05cff3202948ad3c4f7ae858cd` | `tMscXfahUDs` | `5e398793d3c29854f8123bc8fe753c21` |
+| 切换后（裸机） | 同上 | 同上 | 同上 |
+| 回滚后（容器） | 同上 | 同上 | 同上 |
+| 再切裸机（最终） | 同上 | 同上 | 同上 |
+
+**四次测量完全一致**，说明 `install.sh` 的取私钥、`rollback-to-docker.sh` 的
+写回卷两条路径都正确。这个比对方式比只看 `/health` 有说服力——健康检查通过
+不代表 token 还能被下游验签。
+
+### 1.3 上生产时观察到的两个现象
+
+**① 停容器后有孤儿进程残留（不影响服务）。**
+切换后 `ps` 里仍有 `root /app/server` 进程，启动时间为 10 月 29 日 —— 
+它们属于**更早消失的旧容器实例**，不是本次停止的那个。判断依据：
+
+- 在独立 PID namespace（`4026532454` / `4026532383`）
+- `docker ps -a` 里已无对应容器
+- **没有占用 8680 或 8681**（`ss -ltnp` 确认端口只属于 dauth 和 nginx）
+
+结论：无害的历史遗留，可择机 `kill`，但不影响新服务。切换时看到这类进程
+不要误以为「容器没停干净」。
+
+**② `/opt/d-auth` 权限原本是 750，已被 `install.sh` 修正为 755。**
+生产机上切换前是 `drwxr-x---`（部署前的旧状态），`install.sh` 的
+`chmod 755 "$REMOTE_DIR"` 生效后现在是 `drwxr-xr-x`。
+
+这点值得记下来，因为它是**切换前排查时的一个真实干扰项**：勘察服务器看到 750，
+会怀疑 nginx 读不到静态文件。验证方式很直接：
+
+```sh
+sudo -u nginx test -r /opt/d-auth/web/index.html   # 实测通过
 ```
- M .gitignore              加 dist/
- M Makefile                加 bare-build / bare-deploy / bare-check / bare-rollback
- M README.md               部署章节把裸机列为默认
- M deploy/.env.prod.example 补结尾换行（原文件末行无换行）
-?? AGENTS.md               项目约定：部署默认裸机
-?? deploy/baremetal/       本方案全部文件
-```
 
-`Dockerfile`、`docker/`、`deploy/*.yml`、`deploy/deploy-prod.sh`、全部 Go 与前端源码
-**一行未动**（已用 `git diff --name-only` 确认）。Docker 方案随时可用。
+同时确认了 nginx worker 以非 root 用户（uid 100）运行，所以 755 是必需的，
+不能改回 750。`data/` 目录是 `dauth:dauth`，私钥 `600`，与设计一致。
 
-### 1.3 下一步该做的
+### 1.4 下一步
 
-1. 在业务机上先跑 `make bare-check`，逐行看预检输出
-2. **重点确认「JWT 私钥来源」那一项**。显示「找不到任何私钥来源」就停下，
-   不要继续 —— 原因见 [2.1](#21-jwt-私钥丢了会静默重建最危险的一条)
-3. 确认无误后 `make bare-deploy`
-4. 部署成功后，用 `make bare-rollback` 再回滚一次，验证双向切换都正常
-   （这一步没做过，建议第一次就试，别等出事才发现回滚有问题）
+1. 用浏览器真实登录一次，确认登录流程端到端可用（本次只验到 HTTP 层：
+   `GET /login`、`GET /v1/auth/session` 均 200，未走完整表单提交）
+2. 观察几天 `journalctl -u d-auth`，确认无异常
+3. 备份 `/opt/d-auth/data/`（私钥 + 上传文件，唯一需要备份的目录）
+4. 择机清掉 10 月 29 日的孤儿容器进程（见 1.3 ①，无害，可不处理）
 
 ---
 
