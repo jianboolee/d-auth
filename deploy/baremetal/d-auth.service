@@ -1,0 +1,70 @@
+[Unit]
+# d-auth API（裸机部署）
+#
+# 与容器方案的分工差异：容器里 entrypoint.sh 把 nginx 和 Go 塞进同一个 PID
+# 命名空间，任一挂掉整体退出。裸机上不这么做 —— 这里只跑 Go API，静态文件
+# 与反代交给系统 nginx（nginx-d-auth.conf / nginx.service）。两个进程各自
+# 独立重启，日志也分得开。
+Description=d-auth API server
+Documentation=https://github.com/jianboolee/d-auth
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dauth
+Group=dauth
+WorkingDirectory=/opt/d-auth
+
+# 这三个键原本由 docker-compose.prod.yml 的 environment: 提供，裸机上改由
+# unit 注入。刻意用 DAUTH_HTTP_ADDR 而不是 HTTP_PORT：config.go 里前者优先，
+# 且能显式绑回环，保证 API 不暴露到公网（只有本机 nginx 能连）。
+#
+# 它们必须只出现在这一处。systemd 里 EnvironmentFile= 的同名键会覆盖
+# Environment=，所以 .env.prod 中不得再出现 APP_ENV / DAUTH_HTTP_ADDR /
+# HTTP_PORT / DAUTH_JWT_PRIVATE_KEY_PATH —— install.sh 会检查并在发现时报警，
+# 免得「改了 unit 却不生效」这种难查的问题。
+Environment=APP_ENV=production
+Environment=DAUTH_HTTP_ADDR=127.0.0.1:8681
+Environment=DAUTH_JWT_PRIVATE_KEY_PATH=/opt/d-auth/data/jwt-private.pem
+
+# 其余敏感项来自 .env.prod（与 docker 方案共用同一份文件）。
+EnvironmentFile=/opt/d-auth/.env.prod
+
+ExecStart=/opt/d-auth/bin/server
+
+# 启动即迁移（app.New 里无条件跑），因此首次启动失败常见于 DB/Redis 不可达，
+# 这些错误会进 journalctl；Restart=always 会持续重试直到依赖恢复。
+Restart=always
+RestartSec=5s
+TimeoutStopSec=30s
+
+# ---------- 加固 ----------
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# ProtectSystem=full 把 /usr /boot /etc 置为只读；/opt 不在其列，所以这里再
+# 用 ReadWritePaths 显式声明唯一需要写的位置。data/ 同时承载 JWT 私钥与
+# mock OSS 上传文件。
+#
+# 想更严可以改成 ProtectSystem=strict（整个文件系统只读，仅 ReadWritePaths
+# 例外）。未采用是因为它会让任何意外的写入点直接失败 —— 已核对当前代码只写
+# data/，但首次上线先用 full，观察一个版本再收紧更稳妥。
+ReadWritePaths=/opt/d-auth/data
+
+# 静态文件走 nginx，Go 只需要基础网络能力。
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=d-auth
+
+[Install]
+WantedBy=multi-user.target

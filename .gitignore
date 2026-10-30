@@ -17,6 +17,9 @@ web/dist/
 packages/admin/dist/
 *.tsbuildinfo
 
+# 部署产物（裸机包与构建暂存）
+dist/
+
 # 部署密钥
 deploy/.env
 deploy/.env.docker
