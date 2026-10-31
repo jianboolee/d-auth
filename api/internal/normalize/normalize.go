@@ -35,8 +35,9 @@ func Phone(raw string) (string, bool) {
 // 后台允许给运营、测试账号分配一个不属于任何真实号段的占位号码（如 120 开头的
 // 虚拟号），这类号码通过 Phone 会被拒，但后台需要能存下来。
 //
-// 登录、注册、自助改绑仍然走 Phone——只有后台的建号与改绑两个入口放宽，
-// 虚拟号因此不会变成立即可以收码登录的凭据。
+// 绑定手机号/短信验证码这条链路仍然走 Phone——只有后台的建号与改绑两个入口、
+// 以及密码登录（见 PasswordIdentifier）放宽，虚拟号因此不能收码，也无法用它
+// 注册新账号。
 //
 // 规范化规则：
 //   - 先按 Phone 处理，真实号码的写法（本地 11 位 / 带 86 / + 国际号）保持原来结果；
@@ -78,6 +79,10 @@ func Email(raw string) (string, bool) {
 
 // Identifier 解析登录标识，判断它是手机号还是邮箱，并返回规范化后的值。
 // 含 @ 的按邮箱处理，其余按手机号处理。返回的 typ 是 models 的身份类型常量。
+//
+// 这是「需要验证码或建号」的登录路径使用的严格版本（短信登录、注册等）：
+// 虚拟号在这里一律被拒，因为它收不到验证码。
+// 密码登录用 PasswordIdentifier —— 密码登录既不收码也不建号，允许虚拟号。
 func Identifier(raw string) (typ, identifier string, ok bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -91,6 +96,39 @@ func Identifier(raw string) (typ, identifier string, ok bool) {
 	}
 	if phone, ok := Phone(s); ok {
 		return models.IdentityPhone, phone, true
+	}
+	return "", "", false
+}
+
+// PasswordIdentifier 是密码登录专用的标识解析：在严格 Identifier 的基础上，
+// 额外放行 12 开头的虚拟号。
+//
+// 为什么单独放行：后台给运营/测试账号建的虚拟号（120 开头）需要能通过密码登录
+// 进后台，而虚拟号收不到短信，所以它只能走密码登录。放开的前提是密码登录
+// 这条路既不发验证码、也不建号——校验的只是「库里已有这个标识 + 密码正确」，
+// 因此放行虚拟号不会带来新的登录入口，也不会让虚拟号变成可注册的凭据。
+//
+// 只放行 12 开头，而不是把所有非真实号段的纯数字都放开：虚拟号的约定前缀是
+// 120，缩小到 12 已经覆盖它，避免其它任意数字串也能当账号名来尝试。
+// 短信登录、注册、自助改绑仍走 Identifier/Phone，严格校验保持不变。
+func PasswordIdentifier(raw string) (typ, identifier string, ok bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", "", false
+	}
+	if typ, identifier, ok := Identifier(s); ok {
+		return typ, identifier, true
+	}
+	// 走到这里说明严格校验没过；只再认一种形态：12 开头的纯数字虚拟号。
+	// 规范化方式与 AdminPhone 一致——去空格/连字符后原样保留，不套 +86，
+	// 这样能精确命中后台建号时落库的值。
+	digits := strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "-", "")
+	if strings.Contains(s, "@") {
+		// 含 @ 却没过邮箱校验，不是手机号，不要再往下猜
+		return "", "", false
+	}
+	if len(digits) >= 6 && len(digits) <= 15 && strings.HasPrefix(digits, "12") && isASCIIDigits(digits) {
+		return models.IdentityPhone, digits, true
 	}
 	return "", "", false
 }

@@ -70,6 +70,47 @@ func TestPhoneStillRejectsVirtual(t *testing.T) {
 	}
 }
 
+// 密码登录专用的标识解析：在严格 Identifier 的基础上放行 12 开头的虚拟号。
+// 虚拟号收不到短信，只能靠密码登录进后台，所以这条路必须认它。
+func TestPasswordIdentifierAllowsVirtual(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       string
+		wantType string
+		wantID   string
+		wantOK   bool
+	}{
+		{"real mobile unchanged", "13800138000", "phone", "+8613800138000", true},
+		{"email unchanged", "Foo@Example.com", "email", "foo@example.com", true},
+		{"virtual 120 kept as-is", "12012345678", "phone", "12012345678", true},
+		{"virtual with separators", "120 1234-5678", "phone", "12012345678", true},
+		{"virtual 121 also allowed", "12100000001", "phone", "12100000001", true},
+		{"broken email still rejected", "foo@", "", "", false},
+		{"letters rejected", "abcdef", "", "", false},
+		{"empty", "   ", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			typ, id, ok := normalize.PasswordIdentifier(c.in)
+			if ok != c.wantOK {
+				t.Fatalf("PasswordIdentifier(%q) ok = %v, want %v", c.in, ok, c.wantOK)
+			}
+			if typ != c.wantType || id != c.wantID {
+				t.Fatalf("PasswordIdentifier(%q) = (%q, %q), want (%q, %q)", c.in, typ, id, c.wantType, c.wantID)
+			}
+		})
+	}
+}
+
+// 严格 Identifier 不能被顺手放宽——短信登录与注册都依赖它拒绝虚拟号。
+func TestIdentifierStillRejectsVirtual(t *testing.T) {
+	for _, in := range []string{"12012345678", "12100000001", "10012345678"} {
+		if typ, id, ok := normalize.Identifier(in); ok {
+			t.Errorf("Identifier(%q) = (%q, %q), want rejected", in, typ, id)
+		}
+	}
+}
+
 // 密码登录的 identifier 由后端判断类型：含 @ 视为邮箱，否则视为手机号。
 func TestIdentifier(t *testing.T) {
 	cases := []struct {

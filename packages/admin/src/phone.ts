@@ -45,7 +45,8 @@ export function phoneLooksValid(value: string): boolean {
  * 后台建号／改绑手机号使用的宽松校验，与后端 normalize.AdminPhone 对应：
  * 在真实号码之外，还接受任意 6-15 位纯数字，以便存下 120 开头的虚拟号。
  *
- * 只用于后台的管理员操作；「生成虚拟号」产生的号码不能登录、不能收短信。
+ * 只用于后台的管理员操作；「生成虚拟号」产生的号码收不到短信验证码，
+ * 只能用于密码登录（见后端 normalize.PasswordIdentifier）。
  */
 export function adminPhoneLooksValid(value: string): boolean {
   if (phoneLooksValid(value)) return true;

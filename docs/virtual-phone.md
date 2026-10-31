@@ -35,16 +35,25 @@
 
 ## 虚拟号的语义（重点）
 
-**虚拟号不是可用的登录凭据。**
+**虚拟号不是「能收码」的登录凭据，但允许密码登录。**（2026-10-31 调整）
 
-`120` 不是真实号段，面向用户的 `normalize.Phone` 会直接拒绝它。因此虚拟号：
+`12` 不是真实号段，面向用户的 `normalize.Phone` 会直接拒绝它。因此虚拟号：
 
-- 不能用于登录、注册；
-- 不能接收短信验证码（`SendSMS` / `SMSLogin` 走的是严格校验，在发码前就挡掉）；
-- 只是一个占位标识，用于运营/测试账号，让后台能建出一个不占用真实号码的用户。
+- **不能注册**、不能用来接收短信验证码（`SendSMS` / `SMSLogin` 走的是严格校验，
+  在发码前就挡掉）；
+- **可以用于密码登录**：后台给运营/测试账号建的虚拟号需要能登进后台，而它收不到
+  短信，密码登录是唯一出路。这条路径不发码、不建号，校验的只是「库里已有该标识 +
+  密码正确」，因此放行不会产生新的注册入口；
+- 注册之外，它仍是一个占位标识，让后台能建出不占用真实号码的用户。
 
-这也是为什么放宽只做在**后端两个入口**而不是全局：如果放宽 `normalize.Phone`，
-虚拟号就会变成可以收码登录的凭据。
+实现上放宽不是改 `normalize.Phone` 的全局行为，而是给密码登录一个专用入口
+`normalize.PasswordIdentifier`：先走严格 `Identifier`，没过再额外认 **12 开头**的
+纯数字（限 6–15 位，规范化时原样保留、不套 `+86`，以便精确命中后台落库的值）。
+只认 `12` 而不是任意数字串，是为了让虚拟号可登录的同时不把手机号字段变成任意用户名。
+`SendSMS`、`SMSLogin`、注册、自助改绑仍走严格校验，行为不变。
+
+> 早期版本的本文档写过「虚拟号不能用于登录」。那句话在 2026-10-31 之后不再成立：
+> 密码登录放行了 `12` 开头的虚拟号，短信验证码登录仍然拒绝。
 
 ## 校验放宽的边界
 
@@ -94,11 +103,20 @@
 | `packages/sdk/src/index.ts` | 新增 `adminGenerateVirtualPhone()`；`dist/` 重新构建并提交 |
 | `packages/admin/src/phone.ts` | 新增 `adminPhoneLooksValid`（与 `AdminPhone` 对应）、`randomVirtualPhone`（兜底）；`phoneLooksValid` **保持严格**，自助流程仍在用 |
 | `packages/admin/src/pages/CreateUserPage.vue` | 手机号输入框外套 `n-input-group`，右侧加「生成虚拟号」按钮；提交前用 `adminPhoneLooksValid` 校验 |
-| `packages/admin/src/pages/UserDetailPage.vue` | 改绑手机号改用 `adminPhoneLooksValid`；提示文案说明虚拟号不能登录 |
+| `packages/admin/src/pages/UserDetailPage.vue` | 改绑手机号改用 `adminPhoneLooksValid`；提示文案改为说明虚拟号只能密码登录 |
 
 **未触碰**（登录注册端「按正常处理」）：`normalize.Phone` 及其全部调用方，
-包括 `SendSMS`、`SMSLogin`、`PasswordLogin`（经 `Identifier`）、`ChangePhone`，
-以及前端自助页 `LoginPage.vue`、`BindPhonePage.vue`、`SecurityPage.vue`。
+包括 `SendSMS`、`SMSLogin`、`ChangePhone`，以及前端自助页 `LoginPage.vue`、
+`BindPhonePage.vue`、`SecurityPage.vue`。
+
+**2026-10-31 追加的改动**（密码登录放行虚拟号）：只有两处——
+
+| 文件 | 改动 |
+| --- | --- |
+| `api/internal/normalize/normalize.go` | 新增 `PasswordIdentifier`：严格 `Identifier` 之外多认 `12` 开头纯数字；`Identifier` 与 `Phone` **未动** |
+| `api/internal/modules/auth/service.go` | `PasswordLogin` 改用 `PasswordIdentifier` |
+
+前端 `packages/admin/src/phone.ts` 未动：登录页只校验非空，号码格式由后端判定。
 
 ## 验证
 

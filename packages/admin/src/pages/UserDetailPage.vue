@@ -231,7 +231,7 @@ onMounted(load);
         </n-form>
         <p class="hint">
           手机号与邮箱全局唯一，管理员可直接改绑（无需验证码）。手机号可用 120 开头的虚拟号，
-          这类号码不能登录、不能收短信。
+          这类号码收不到短信验证码，只能用于密码登录。
         </p>
         <n-space>
           <n-button type="primary" @click="save">保存</n-button>

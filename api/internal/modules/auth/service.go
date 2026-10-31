@@ -215,7 +215,9 @@ func (s *Service) EmailRegister(ctx context.Context, emailRaw, code, pass, nickn
 // PasswordLogin 用手机号或邮箱 + 密码登录。密码属于账号本身，因此绑定了手机号的
 // 账号可以用任一已绑定标识登录。仅短信登录创建的账号没有设置密码，会返回凭据错误。
 func (s *Service) PasswordLogin(_ context.Context, identifierRaw, pass string, meta LoginMeta) (*dto.TokenResult, error) {
-	typ, identifier, ok := normalize.Identifier(identifierRaw)
+	// 用 PasswordIdentifier 而不是 Identifier：密码登录不发验证码、也不建号，
+	// 因此允许后台建的 12x 虚拟号用它登录（虚拟号收不到短信，只能走这条路）。
+	typ, identifier, ok := normalize.PasswordIdentifier(identifierRaw)
 	if !ok {
 		return nil, apperr.New(apperr.ErrInvalidArgument, "INVALID_IDENTIFIER", "请输入正确的手机号或邮箱")
 	}
