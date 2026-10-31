@@ -9,6 +9,8 @@
   --dauth-primary-fg: #ffffff;
   --dauth-radius: 10px;
   --dauth-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  /* 列表里无头像时的圆形占位底色：比卡片白底深一档，能看出形状又不抢眼 */
+  --dauth-avatar-placeholder: #ececef;
   /* 侧栏交互态：用背景深浅区分，而非描边 */
   --dauth-sidebar-hover: rgba(0, 0, 0, 0.045);
   --dauth-sidebar-active: rgba(0, 0, 0, 0.07);

@@ -4,6 +4,7 @@ import {
   NCard,
   NDataTable,
   NDatePicker,
+  NEllipsis,
   NInput,
   NSelect,
   NSpace,
@@ -173,6 +174,64 @@ const pagination = computed<PaginationProps>(() => ({
 const sortOrderFor = (key: SortKey) => (sort.value.columnKey === key ? sort.value.order : false);
 
 /**
+ * 昵称单元格：头像常驻在昵称左边，与昵称同属一列。
+ *
+ * 不单开头像列：一格只有 24px 内容却要占掉一整列宽，窄屏上尤其亏；头像和昵称
+ * 本来就是一体的识别信息，放同一格更紧凑。
+ *
+ * 没有头像时不画首字母、也不放图标，只留一个灰底圆做占位——占位本身已经表达
+ * 「这里该有头像」，填字反而在列表里堆出一片杂讯。
+ *
+ * 样式全部内联：render 里的节点由 naive 的 Cell 组件在它自己的渲染期创建，
+ * 拿不到本组件的 scoped 样式，写进 <style scoped> 不会生效。
+ */
+function renderNickname(r: User) {
+  return h(
+    "div",
+    { style: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0 } },
+    [
+      h(
+        "span",
+        {
+          style: {
+            flex: "0 0 auto",
+            width: "24px",
+            height: "24px",
+            borderRadius: "50%",
+            overflow: "hidden",
+            background: "var(--dauth-avatar-placeholder, #ececef)",
+          },
+        },
+        r.avatar_url
+          ? [
+              h("img", {
+                src: r.avatar_url,
+                alt: "",
+                loading: "lazy",
+                // 加载失败就隐藏图片，露出下面的灰底圆——否则浏览器会画一个
+                // 破图图标，比没有头像更难看。
+                onError: (e: Event) => {
+                  (e.target as HTMLImageElement).style.visibility = "hidden";
+                },
+                style: { display: "block", width: "100%", height: "100%", objectFit: "cover" },
+              }),
+            ]
+          : [],
+      ),
+      // 列本身不开 ellipsis：那样截断的是整个 flex 行，溢出时被裁掉的是头像
+      // 而不是昵称文字。这里只让昵称自己省略，并带上 tooltip 看全名。
+      // flex 用 0 1 auto 而不是 1 1 auto：昵称不该被拉宽，宽度就取内容宽，
+      // NEllipsis 靠「内层是否比外层宽」判断要不要出 tooltip，拉宽会让它误报。
+      h(
+        NEllipsis,
+        { tooltip: true, style: { flex: "0 1 auto", minWidth: 0 } },
+        { default: () => r.nickname || "-" },
+      ),
+    ],
+  );
+}
+
+/**
  * 列定义随屏宽变化。
  *
  * 窄屏保留四列：昵称、手机、状态、操作。手机号是这一页最主要的识别信息，
@@ -189,10 +248,11 @@ const columns = computed<DataTableColumns<User>>(() => {
     {
       title: "昵称",
       key: "nickname",
-      width: isMobile ? 110 : undefined,
-      ellipsis: { tooltip: true },
+      // 比纯文字时代略宽：多出 24px 头像 + 8px 间距
+      width: isMobile ? 128 : 200,
       sorter: true,
       sortOrder: sortOrderFor("nickname"),
+      render: renderNickname,
     },
     // 手机号通常 11 位，给 120px 能完整显示；脱敏后更短
     { title: "手机", key: "phone", width: 120, ellipsis: { tooltip: true }, render: (r) => r.phone || "-" },
