@@ -248,8 +248,9 @@ const columns = computed<DataTableColumns<User>>(() => {
     {
       title: "昵称",
       key: "nickname",
-      // 比纯文字时代略宽：多出 24px 头像 + 8px 间距
-      width: isMobile ? 128 : 200,
+      // 头像占 24px + 8px 间距，再加上单元格左右内边距，120px 只够 4 个汉字，
+      // 「调试管理员」这类 5 字名会被截断。给到 130px 能放下 5 字。
+      width: isMobile ? 128 : 130,
       sorter: true,
       sortOrder: sortOrderFor("nickname"),
       render: renderNickname,
@@ -262,7 +263,10 @@ const columns = computed<DataTableColumns<User>>(() => {
     base.push({
       title: "邮箱",
       key: "email",
-      width: 200,
+      // 从 200 收到 150：昵称列加上头像后需要更多宽度，各列 width 之和必须留在
+      // 容器宽度以内，否则整表出现横向滚动、右起固定列会把「注册时间」盖住。
+      // 邮箱本来就常被省略成省略号，让出这段宽度损失的信息最少。
+      width: 150,
       ellipsis: { tooltip: true },
       render: (r) => r.email || "-",
     });
